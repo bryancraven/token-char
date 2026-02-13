@@ -67,8 +67,12 @@ def default_data_dir(source):
             return os.path.expanduser(
                 "~/.config/Claude/local-agent-mode-sessions"
             )
+        elif system == "Windows":
+            appdata = os.environ.get("APPDATA", "")
+            if appdata:
+                return os.path.join(appdata, "Claude", "local-agent-mode-sessions")
     elif source == "claude_code":
-        if system in ("Darwin", "Linux"):
+        if system in ("Darwin", "Linux", "Windows"):
             return os.path.expanduser("~/.claude/projects")
     return None
 
@@ -101,7 +105,7 @@ def _parse_cowork_project(data_dir, machine, project_name):
 
     for jf in sorted(glob.glob(os.path.join(data_dir, "local_*.json"))):
         try:
-            with open(jf, "r") as fh:
+            with open(jf, "r", encoding="utf-8") as fh:
                 meta = json.load(fh)
         except (json.JSONDecodeError, OSError):
             continue
@@ -122,7 +126,7 @@ def _parse_cowork_project(data_dir, machine, project_name):
         turn_num = 0
 
         try:
-            with open(audit_path, "r") as fh:
+            with open(audit_path, "r", encoding="utf-8") as fh:
                 for line in fh:
                     line = line.strip()
                     if not line:
@@ -226,7 +230,10 @@ def extract_claude_code(projects_dir, machine):
             continue
 
         dirname = os.path.basename(proj_dir)
-        if dirname.startswith("-"):
+        # Windows-encoded path: drive letter followed by -- (e.g. C--Users-foo)
+        if len(dirname) >= 3 and dirname[0].isalpha() and dirname[1:3] == "--":
+            project_name = dirname[0] + ":\\" + dirname[3:].replace("-", "\\")
+        elif dirname.startswith("-"):
             project_name = "/" + dirname[1:].replace("-", "/")
         else:
             project_name = dirname
@@ -248,7 +255,7 @@ def extract_claude_code(projects_dir, machine):
             last_ts = None
 
             try:
-                with open(jf, "r") as fh:
+                with open(jf, "r", encoding="utf-8") as fh:
                     for line in fh:
                         line = line.strip()
                         if not line:
@@ -325,7 +332,7 @@ def extract_claude_code(projects_dir, machine):
                     agent_id = sa_name
 
                 try:
-                    with open(sa_file, "r") as fh:
+                    with open(sa_file, "r", encoding="utf-8") as fh:
                         for line in fh:
                             line = line.strip()
                             if not line:

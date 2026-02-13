@@ -12,7 +12,12 @@ def _decode_project_name(dirname):
     """Decode a Claude Code project directory name to a path.
     e.g. '-home-ig88-rpi-deploy' -> '/home/ig88/rpi-deploy'
     On macOS: '-Users-bryanc-dev-foo' -> '/Users/bryanc/dev/foo'
+    On Windows: 'C--Users-tmd2p-code' -> 'C:\\Users\\tmd2p\\code'
     """
+    # Windows-encoded path: drive letter followed by -- (e.g. C--Users-foo)
+    if len(dirname) >= 3 and dirname[0].isalpha() and dirname[1:3] == "--":
+        return dirname[0] + ":\\" + dirname[3:].replace("-", "\\")
+    # Unix-encoded path: leading dash (e.g. -home-user-project)
     if dirname.startswith("-"):
         return "/" + dirname[1:].replace("-", "/")
     return dirname
@@ -68,7 +73,7 @@ def extract_claude_code(projects_dir, project_map=None, machine=""):
             session_cwd = ""
 
             try:
-                with open(jf, "r") as fh:
+                with open(jf, "r", encoding="utf-8") as fh:
                     for line in fh:
                         line = line.strip()
                         if not line:
@@ -161,7 +166,7 @@ def extract_claude_code(projects_dir, project_map=None, machine=""):
                     agent_id = sa_name
 
                 try:
-                    with open(sa_file, "r") as fh:
+                    with open(sa_file, "r", encoding="utf-8") as fh:
                         for line in fh:
                             line = line.strip()
                             if not line:

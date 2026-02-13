@@ -33,7 +33,7 @@ def write_json(turns, sessions, dest=None, machine="", sources=None, version="0.
 
     if dest:
         os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
-        with open(dest, "w") as f:
+        with open(dest, "w", encoding="utf-8") as f:
             f.write(text)
             f.write("\n")
     else:
@@ -59,13 +59,13 @@ def write_csv(turns, sessions, prefix):
 
     os.makedirs(os.path.dirname(turns_path) or ".", exist_ok=True)
 
-    with open(turns_path, "w", newline="") as f:
+    with open(turns_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=TURN_FIELDS, extrasaction="ignore")
         writer.writeheader()
         for t in turns:
             writer.writerow({k: t.get(k, "") for k in TURN_FIELDS})
 
-    with open(sessions_path, "w", newline="") as f:
+    with open(sessions_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=SESSION_FIELDS, extrasaction="ignore")
         writer.writeheader()
         for s in sessions:
@@ -99,7 +99,7 @@ def write_jsonl(turns, sessions, dest=None):
 
     if dest:
         os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
-        with open(dest, "w") as f:
+        with open(dest, "w", encoding="utf-8") as f:
             f.write(text)
     else:
         sys.stdout.write(text)

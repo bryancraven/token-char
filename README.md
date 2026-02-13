@@ -2,7 +2,7 @@
 
 Extract per-turn token usage data from Claude Desktop (Cowork) and Claude Code (CLI) session logs.
 
-Zero runtime dependencies. Python 3.8+ stdlib only.
+Zero runtime dependencies. Python 3.8+ stdlib only. Supports macOS, Linux, and Windows (Claude Code only; Cowork on Windows is untested).
 
 ## Quick Start
 
@@ -115,13 +115,24 @@ Configure with environment variables:
 
 ### Cowork (Claude Desktop)
 
-Session data at `~/Library/Application Support/Claude/local-agent-mode-sessions/<org>/<project>/`:
+Session data locations:
+- **macOS**: `~/Library/Application Support/Claude/local-agent-mode-sessions/<org>/<project>/`
+- **Linux**: `~/.config/Claude/local-agent-mode-sessions/<org>/<project>/`
+- **Windows**: `%APPDATA%\Claude\local-agent-mode-sessions\<org>\<project>\` (untested)
+
+Files:
 - `local_<session_id>.json` — metadata (title, model, timestamps)
 - `local_<session_id>/audit.jsonl` — per-message audit log
 
 ### Claude Code (CLI)
 
-Session data at `~/.claude/projects/<encoded-path>/`:
+Session data locations:
+- **macOS/Linux**: `~/.claude/projects/<encoded-path>/`
+- **Windows**: `%USERPROFILE%\.claude\projects\<encoded-path>\`
+
+On Windows, project directory names encode the full path with the drive letter, e.g. `C--Users-foo-bar` represents `C:\Users\foo\bar`.
+
+Files:
 - `<session-id>.jsonl` — main session log
 - `<session-id>/subagents/agent-<id>.jsonl` — subagent logs (parsed automatically)
 

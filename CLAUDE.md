@@ -31,7 +31,7 @@ pip install pytest  # for testing only
 token_char/
 ├── schema.py          # Field definitions, validation
 ├── sources/
-│   ├── _common.py     # Shared: timestamp parsing, model_family, platform paths
+│   ├── _common.py     # Shared: timestamp parsing, model_family, platform paths (macOS/Linux/Windows)
 │   ├── cowork.py      # Cowork (Claude Desktop) parser
 │   └── claude_code.py # Claude Code (CLI) parser
 ├── output.py          # JSON/CSV/JSONL writers
@@ -48,6 +48,7 @@ token_char/
 
 - **Per-turn grain**: Every assistant response is one turn dict with 4 token fields (input, output, cache_read, cache_create) plus `is_subagent`/`subagent_id` for provenance
 - **Subagent parsing**: Claude Code sessions may have `<session-id>/subagents/agent-<id>.jsonl` files — these are parsed automatically and their tokens included in session aggregates
+- **Windows path encoding**: Project directory names use drive letter + `--` + path segments separated by `-` (e.g. `C--Users-foo-bar` → `C:\Users\foo\bar`)
 - **model_family()**: Substring classification → opus/sonnet/haiku/unknown
 - **is_genuine_user_turn()**: Filters out tool_result callback lists from user turn counts
 - **Cowork timestamp**: `_audit_timestamp` field (with fallback to `message._audit_timestamp`)
@@ -55,10 +56,15 @@ token_char/
 
 ### Data Sources
 
-- **Cowork**: `~/Library/Application Support/Claude/local-agent-mode-sessions/<org>/<project>/`
+- **Cowork**:
+  - macOS: `~/Library/Application Support/Claude/local-agent-mode-sessions/<org>/<project>/`
+  - Linux: `~/.config/Claude/local-agent-mode-sessions/<org>/<project>/`
+  - Windows: `%APPDATA%\Claude\local-agent-mode-sessions\<org>\<project>\` (path defined but untested)
   - `local_<sid>.json` — metadata (title, model, timestamps as epoch-ms)
   - `local_<sid>/audit.jsonl` — per-message audit log
-- **Claude Code**: `~/.claude/projects/<encoded-path>/`
+- **Claude Code**:
+  - macOS/Linux: `~/.claude/projects/<encoded-path>/`
+  - Windows: `%USERPROFILE%\.claude\projects\<encoded-path>\`
   - `<session-id>.jsonl` — main session log
   - `<session-id>/subagents/agent-<id>.jsonl` — subagent logs (parsed automatically)
 

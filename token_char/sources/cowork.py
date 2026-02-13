@@ -69,7 +69,7 @@ def _parse_project(data_dir, machine, skip_first_n, project_name):
 
     for jf in sorted(json_files):
         try:
-            with open(jf, "r") as fh:
+            with open(jf, "r", encoding="utf-8") as fh:
                 meta = json.load(fh)
         except (json.JSONDecodeError, OSError):
             continue
@@ -90,7 +90,7 @@ def _parse_project(data_dir, machine, skip_first_n, project_name):
         assistant_turn_num = 0
 
         try:
-            with open(audit_path, "r") as fh:
+            with open(audit_path, "r", encoding="utf-8") as fh:
                 for line in fh:
                     line = line.strip()
                     if not line:

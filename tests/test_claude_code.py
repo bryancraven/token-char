@@ -123,6 +123,14 @@ def test_project_name_decoding():
     assert _decode_project_name("some-dir") == "some-dir"
 
 
+def test_project_name_decoding_windows():
+    """Test Windows-style directory name decoding.
+    Windows uses drive letter + double dash (e.g. C--Users-foo)."""
+    assert _decode_project_name("C--Users-tmd2p-code") == "C:\\Users\\tmd2p\\code"
+    assert _decode_project_name("D--projects-my-app") == "D:\\projects\\my\\app"
+    assert _decode_project_name("C--Users-tmd2p") == "C:\\Users\\tmd2p"
+
+
 def test_project_map(cc_dir):
     """project_map should override decoded project names."""
     turns, sessions = extract_claude_code(

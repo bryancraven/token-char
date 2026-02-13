@@ -83,7 +83,7 @@ def main(argv=None):
 
     # Suppress stderr if quiet
     if args.quiet:
-        sys.stderr = open(os.devnull, "w")
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
 
     # Parse project map
     project_map = {}

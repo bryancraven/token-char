@@ -58,12 +58,14 @@ def default_data_dir(source):
             return os.path.expanduser(
                 "~/.config/Claude/local-agent-mode-sessions"
             )
-        # TODO: Windows support
+        elif system == "Windows":
+            appdata = os.environ.get("APPDATA", "")
+            if appdata:
+                return os.path.join(appdata, "Claude", "local-agent-mode-sessions")
         return None
     elif source == "claude_code":
-        if system in ("Darwin", "Linux"):
+        if system in ("Darwin", "Linux", "Windows"):
             return os.path.expanduser("~/.claude/projects")
-        # TODO: Windows support
         return None
     return None
 
