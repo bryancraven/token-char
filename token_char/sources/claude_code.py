@@ -11,8 +11,8 @@ from ._common import parse_timestamp, model_family, is_genuine_user_turn, get_ho
 def _decode_project_name(dirname):
     """Decode a Claude Code project directory name to a path.
     e.g. '-home-ig88-rpi-deploy' -> '/home/ig88/rpi-deploy'
-    On macOS: '-Users-bryanc-dev-foo' -> '/Users/bryanc/dev/foo'
-    On Windows: 'C--Users-tmd2p-code' -> 'C:\\Users\\tmd2p\\code'
+    On macOS: '-Users-alice-dev-foo' -> '/Users/alice/dev/foo'
+    On Windows: 'C--Users-bob-code' -> 'C:\\Users\\bob\\code'
     """
     # Windows-encoded path: drive letter followed by -- (e.g. C--Users-foo)
     if len(dirname) >= 3 and dirname[0].isalpha() and dirname[1:3] == "--":

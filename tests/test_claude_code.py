@@ -119,16 +119,16 @@ def test_project_name_decoding():
     Note: decoding is lossy — hyphens in path segments become slashes.
     Use --project-map for exact names."""
     assert _decode_project_name("-home-ig88-project") == "/home/ig88/project"
-    assert _decode_project_name("-Users-bryanc-dev-foo") == "/Users/bryanc/dev/foo"
+    assert _decode_project_name("-Users-alice-dev-foo") == "/Users/alice/dev/foo"
     assert _decode_project_name("some-dir") == "some-dir"
 
 
 def test_project_name_decoding_windows():
     """Test Windows-style directory name decoding.
     Windows uses drive letter + double dash (e.g. C--Users-foo)."""
-    assert _decode_project_name("C--Users-tmd2p-code") == "C:\\Users\\tmd2p\\code"
+    assert _decode_project_name("C--Users-bob-code") == "C:\\Users\\bob\\code"
     assert _decode_project_name("D--projects-my-app") == "D:\\projects\\my\\app"
-    assert _decode_project_name("C--Users-tmd2p") == "C:\\Users\\tmd2p"
+    assert _decode_project_name("C--Users-bob") == "C:\\Users\\bob"
 
 
 def test_project_map(cc_dir):
