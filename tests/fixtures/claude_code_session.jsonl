@@ -1,0 +1,8 @@
+{"type": "system", "version": "1.0.0", "timestamp": "2025-02-13T10:00:00Z"}
+{"type": "user", "message": {"content": "Build the deploy script"}, "sessionId": "sess-001", "cwd": "/home/user/project", "timestamp": "2025-02-13T10:00:01Z"}
+{"type": "assistant", "message": {"model": "claude-sonnet-4-5-20250514", "usage": {"input_tokens": 800, "output_tokens": 400, "cache_read_input_tokens": 100, "cache_creation_input_tokens": 50}, "content": [{"type": "text", "text": "I'll create the script."}]}, "timestamp": "2025-02-13T10:00:05Z"}
+{"type": "file-history-snapshot", "files": {"script.py": "content"}, "timestamp": "2025-02-13T10:00:06Z"}
+{"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}, "timestamp": "2025-02-13T10:00:07Z"}
+{"type": "assistant", "message": {"model": "claude-sonnet-4-5-20250514", "usage": {"input_tokens": 1200, "output_tokens": 600, "cache_read_input_tokens": 300, "cache_creation_input_tokens": 80}, "content": [{"type": "text", "text": "Done."}]}, "timestamp": "2025-02-13T10:00:10Z"}
+{"type": "user", "message": {"content": "Add error handling"}, "timestamp": "2025-02-13T10:00:15Z"}
+{"type": "assistant", "message": {"model": "claude-sonnet-4-5-20250514", "usage": {"input_tokens": 1500, "output_tokens": 900, "cache_read_input_tokens": 500, "cache_creation_input_tokens": 120}, "content": [{"type": "text", "text": "Added error handling."}]}, "timestamp": "2025-02-13T10:00:20Z"}

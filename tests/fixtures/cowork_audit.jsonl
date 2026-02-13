@@ -1,0 +1,8 @@
+{"type": "user", "message": {"content": "Hello, help me with this code"}, "_audit_timestamp": "2025-02-13T00:00:00Z"}
+{"type": "assistant", "message": {"model": "claude-opus-4-5-20250514", "usage": {"input_tokens": 1000, "output_tokens": 500, "cache_read_input_tokens": 200, "cache_creation_input_tokens": 100}, "content": [{"type": "text", "text": "Sure, I can help."}]}, "_audit_timestamp": "2025-02-13T00:00:05Z"}
+{"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "tool1", "content": "result data"}]}, "_audit_timestamp": "2025-02-13T00:00:10Z"}
+{"type": "assistant", "message": {"model": "claude-opus-4-5-20250514", "usage": {"input_tokens": 1500, "output_tokens": 800, "cache_read_input_tokens": 500, "cache_creation_input_tokens": 50}, "content": [{"type": "text", "text": "Here is the result."}, {"type": "tool_use", "name": "editor", "id": "tool2", "input": {}}]}, "_audit_timestamp": "2025-02-13T00:00:15Z"}
+{"type": "user", "message": {"content": "Thanks, now fix the bug"}, "_audit_timestamp": "2025-02-13T00:00:20Z"}
+{"type": "assistant", "message": {"model": "<synthetic>", "usage": {"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}, "content": [{"type": "text", "text": ""}]}, "_audit_timestamp": "2025-02-13T00:00:22Z"}
+{"type": "assistant", "message": {"model": "claude-sonnet-4-5-20250514", "usage": {"input_tokens": 2000, "output_tokens": 1200, "cache_read_input_tokens": 800, "cache_creation_input_tokens": 200}, "content": [{"type": "text", "text": "Fixed the bug."}]}, "_audit_timestamp": "2025-02-13T00:00:25Z"}
+

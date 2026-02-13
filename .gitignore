@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.env
+.venv/
+*.json
+!tests/fixtures/*.json
+*.csv
+*.jsonl
+!tests/fixtures/*.jsonl
+test_out/
+.pytest_cache/
