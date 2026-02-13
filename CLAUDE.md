@@ -46,7 +46,8 @@ token_char/
 
 ### Key Patterns
 
-- **Per-turn grain**: Every assistant response is one turn dict with 4 token fields (input, output, cache_read, cache_create)
+- **Per-turn grain**: Every assistant response is one turn dict with 4 token fields (input, output, cache_read, cache_create) plus `is_subagent`/`subagent_id` for provenance
+- **Subagent parsing**: Claude Code sessions may have `<session-id>/subagents/agent-<id>.jsonl` files — these are parsed automatically and their tokens included in session aggregates
 - **model_family()**: Substring classification → opus/sonnet/haiku/unknown
 - **is_genuine_user_turn()**: Filters out tool_result callback lists from user turn counts
 - **Cowork timestamp**: `_audit_timestamp` field (with fallback to `message._audit_timestamp`)
@@ -58,7 +59,8 @@ token_char/
   - `local_<sid>.json` — metadata (title, model, timestamps as epoch-ms)
   - `local_<sid>/audit.jsonl` — per-message audit log
 - **Claude Code**: `~/.claude/projects/<encoded-path>/`
-  - `<session-id>.jsonl` — session log (only project-level, not subagent dirs)
+  - `<session-id>.jsonl` — main session log
+  - `<session-id>/subagents/agent-<id>.jsonl` — subagent logs (parsed automatically)
 
 ## Testing
 
