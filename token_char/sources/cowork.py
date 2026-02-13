@@ -144,6 +144,8 @@ def _parse_project(data_dir, machine, skip_first_n, project_name):
                             "cache_read_tokens": cr,
                             "cache_create_tokens": cc,
                             "total_tokens": total,
+                            "is_subagent": False,
+                            "subagent_id": None,
                         })
         except OSError:
             continue
@@ -194,6 +196,7 @@ def _parse_project(data_dir, machine, skip_first_n, project_name):
                 "total_cache_read_tokens": cache_read_tokens,
                 "total_cache_create_tokens": cache_create_tokens,
                 "total_tokens": input_tokens + output_tokens + cache_read_tokens + cache_create_tokens,
+                "subagent_turns": 0,
             },
         })
 

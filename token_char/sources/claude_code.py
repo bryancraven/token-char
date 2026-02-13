@@ -142,9 +142,86 @@ def extract_claude_code(projects_dir, project_map=None, machine=""):
                                 "cache_read_tokens": cr,
                                 "cache_create_tokens": cc,
                                 "total_tokens": total,
+                                "is_subagent": False,
+                                "subagent_id": None,
                             })
             except OSError:
                 continue
+
+            # Parse subagent files for this session
+            subagent_turns_count = 0
+            subagent_pattern = os.path.join(proj_dir, session_id, "subagents", "*.jsonl")
+            for sa_file in sorted(glob.glob(subagent_pattern)):
+                sa_basename = os.path.basename(sa_file)
+                # Extract agent ID: "agent-ab884ec.jsonl" -> "ab884ec"
+                sa_name = os.path.splitext(sa_basename)[0]
+                if sa_name.startswith("agent-"):
+                    agent_id = sa_name[len("agent-"):]
+                else:
+                    agent_id = sa_name
+
+                try:
+                    with open(sa_file, "r") as fh:
+                        for line in fh:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                rec = json.loads(line)
+                            except json.JSONDecodeError:
+                                continue
+
+                            rec_type = rec.get("type", "")
+                            if rec_type != "assistant":
+                                continue
+
+                            msg = rec.get("message", {})
+                            usage = msg.get("usage", {})
+                            if not usage:
+                                continue
+
+                            ts_str = rec.get("timestamp", "")
+                            ts_iso = parse_timestamp(ts_str)
+                            if ts_iso:
+                                if first_ts is None:
+                                    first_ts = ts_iso
+                                last_ts = ts_iso
+
+                            turns_assistant += 1
+                            assistant_turn_num += 1
+                            subagent_turns_count += 1
+                            mdl = msg.get("model", "")
+
+                            inp = usage.get("input_tokens", 0)
+                            out = usage.get("output_tokens", 0)
+                            cr = usage.get("cache_read_input_tokens", 0)
+                            cc = usage.get("cache_creation_input_tokens", 0)
+                            total = inp + out + cr + cc
+
+                            input_tokens += inp
+                            output_tokens += out
+                            cache_read_tokens += cr
+                            cache_create_tokens += cc
+
+                            session_turns.append({
+                                "source": source,
+                                "machine": machine,
+                                "project": project_name,
+                                "session_id": session_id,
+                                "turn_number": assistant_turn_num,
+                                "timestamp": ts_iso,
+                                "model": mdl,
+                                "model_family": model_family(mdl),
+                                "input_tokens": inp,
+                                "output_tokens": out,
+                                "cache_read_tokens": cr,
+                                "cache_create_tokens": cc,
+                                "total_tokens": total,
+                                "is_subagent": True,
+                                "subagent_id": agent_id,
+                            })
+                except OSError:
+                    continue
 
             if not session_turns:
                 continue
@@ -186,6 +263,7 @@ def extract_claude_code(projects_dir, project_map=None, machine=""):
                 "total_cache_read_tokens": cache_read_tokens,
                 "total_cache_create_tokens": cache_create_tokens,
                 "total_tokens": input_tokens + output_tokens + cache_read_tokens + cache_create_tokens,
+                "subagent_turns": subagent_turns_count,
             })
 
     print(

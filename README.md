@@ -73,6 +73,8 @@ python -m token_char.extract [OPTIONS]
 | `cache_read_tokens` | int | Cached input |
 | `cache_create_tokens` | int | Input written to cache |
 | `total_tokens` | int | Sum of four token fields |
+| `is_subagent` | bool | `true` if turn is from a subagent |
+| `subagent_id` | str/null | Agent ID (e.g. `"ab884ec"`) or `null` |
 
 ### Session Fields
 
@@ -93,6 +95,7 @@ python -m token_char.extract [OPTIONS]
 | `total_cache_read_tokens` | int | Summed |
 | `total_cache_create_tokens` | int | Summed |
 | `total_tokens` | int | Grand total |
+| `subagent_turns` | int | Count of subagent assistant turns |
 
 ## Remote Extraction
 
@@ -119,7 +122,8 @@ Session data at `~/Library/Application Support/Claude/local-agent-mode-sessions/
 ### Claude Code (CLI)
 
 Session data at `~/.claude/projects/<encoded-path>/`:
-- `<session-id>.jsonl` — session log (project-level only, not subagent dirs)
+- `<session-id>.jsonl` — main session log
+- `<session-id>/subagents/agent-<id>.jsonl` — subagent logs (parsed automatically)
 
 ## Testing
 

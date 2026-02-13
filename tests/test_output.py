@@ -134,3 +134,41 @@ def test_json_roundtrip_token_totals(sample_data, tmp_path):
         assert loaded["cache_read_tokens"] == orig["cache_read_tokens"]
         assert loaded["cache_create_tokens"] == orig["cache_create_tokens"]
         assert loaded["total_tokens"] == orig["total_tokens"]
+
+
+def test_json_output_subagent_fields(sample_data, tmp_path):
+    """JSON output should include is_subagent and subagent_id in turns, subagent_turns in sessions."""
+    turns, sessions = sample_data
+    out_path = str(tmp_path / "out_sa.json")
+
+    write_json(turns, sessions, out_path, "test-host", ["cowork"], "0.1.0")
+
+    with open(out_path) as f:
+        data = json.load(f)
+
+    for t in data["turns"]:
+        assert "is_subagent" in t, "Missing is_subagent in turn"
+        assert "subagent_id" in t, "Missing subagent_id in turn"
+
+    for s in data["sessions"]:
+        assert "subagent_turns" in s, "Missing subagent_turns in session"
+
+
+def test_csv_output_subagent_fields(sample_data, tmp_path):
+    """CSV output should include subagent columns."""
+    turns, sessions = sample_data
+    out_dir = str(tmp_path / "csv_sa")
+    os.makedirs(out_dir)
+
+    write_csv(turns, sessions, out_dir)
+
+    with open(os.path.join(out_dir, "turns.csv")) as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+        assert "is_subagent" in reader.fieldnames
+        assert "subagent_id" in reader.fieldnames
+
+    with open(os.path.join(out_dir, "sessions.csv")) as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+        assert "subagent_turns" in reader.fieldnames

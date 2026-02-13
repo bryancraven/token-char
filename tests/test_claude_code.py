@@ -26,6 +26,29 @@ def cc_dir(tmp_path):
     return str(tmp_path)
 
 
+@pytest.fixture
+def cc_dir_with_subagent(tmp_path):
+    """Set up a fake Claude Code projects directory with main + subagent data."""
+    fixtures = os.path.join(os.path.dirname(__file__), "fixtures")
+
+    proj_dir = tmp_path / "-home-user-project"
+    proj_dir.mkdir()
+
+    shutil.copy(
+        os.path.join(fixtures, "claude_code_session.jsonl"),
+        proj_dir / "sess-001.jsonl",
+    )
+
+    subagent_dir = proj_dir / "sess-001" / "subagents"
+    subagent_dir.mkdir(parents=True)
+    shutil.copy(
+        os.path.join(fixtures, "claude_code_subagent.jsonl"),
+        subagent_dir / "agent-ab884ec.jsonl",
+    )
+
+    return str(tmp_path)
+
+
 def test_basic_extraction(cc_dir):
     """Test that we get the right number of turns and sessions."""
     turns, sessions = extract_claude_code(cc_dir, machine="test-host")
@@ -124,27 +147,64 @@ def test_duration(cc_dir):
     assert sessions[0]["duration_min"] == 0.3
 
 
-def test_subagent_files_not_globbed(cc_dir):
-    """JSONL files in session subdirs (subagents) should not be parsed."""
-    # Create a subagent dir with a JSONL file
-    subagent_dir = os.path.join(cc_dir, "-home-user-project", "sess-001", "subagents")
-    os.makedirs(subagent_dir)
-    with open(os.path.join(subagent_dir, "sub.jsonl"), "w") as f:
-        f.write(json.dumps({
-            "type": "assistant",
-            "message": {
-                "model": "claude-haiku-3-5-20241022",
-                "usage": {"input_tokens": 99, "output_tokens": 99,
-                           "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0},
-                "content": [],
-            },
-            "timestamp": "2025-02-13T10:05:00Z",
-        }) + "\n")
+def test_main_turns_not_subagent(cc_dir):
+    """Main session turns should have is_subagent=False and subagent_id=None."""
+    turns, _ = extract_claude_code(cc_dir, machine="test")
+    for t in turns:
+        assert t["is_subagent"] is False
+        assert t["subagent_id"] is None
 
-    turns, sessions = extract_claude_code(cc_dir, machine="test")
-    # Should still be only 3 turns, 1 session — subagent file ignored
-    assert len(turns) == 3
+
+def test_session_subagent_turns_zero(cc_dir):
+    """Sessions without subagents should have subagent_turns=0."""
+    _, sessions = extract_claude_code(cc_dir, machine="test")
+    assert sessions[0]["subagent_turns"] == 0
+
+
+def test_subagent_files_included(cc_dir_with_subagent):
+    """JSONL files in session subagents dirs should now be parsed."""
+    turns, sessions = extract_claude_code(cc_dir_with_subagent, machine="test")
+    # 3 main turns + 2 subagent turns = 5 total
+    assert len(turns) == 5
     assert len(sessions) == 1
+
+
+def test_subagent_turn_fields(cc_dir_with_subagent):
+    """Subagent turns should have is_subagent=True and correct subagent_id."""
+    turns, _ = extract_claude_code(cc_dir_with_subagent, machine="test")
+    subagent_turns = [t for t in turns if t["is_subagent"]]
+    assert len(subagent_turns) == 2
+
+    for t in subagent_turns:
+        assert t["is_subagent"] is True
+        assert t["subagent_id"] == "ab884ec"
+        assert t["model_family"] == "haiku"
+        assert t["model"] == "claude-haiku-4-5-20251001"
+        errors = validate_turn(t)
+        assert errors == [], f"Subagent turn invalid: {errors}"
+
+
+def test_subagent_tokens_in_session(cc_dir_with_subagent):
+    """Session aggregates should include subagent tokens."""
+    _, sessions = extract_claude_code(cc_dir_with_subagent, machine="test")
+    s = sessions[0]
+
+    # Main: input=3500, output=1900, cache_read=900, cache_create=250
+    # Subagent: input=200+300=500, output=100+150=250, cache_read=50+75=125, cache_create=10+20=30
+    assert s["total_input_tokens"] == 3500 + 500
+    assert s["total_output_tokens"] == 1900 + 250
+    assert s["total_cache_read_tokens"] == 900 + 125
+    assert s["total_cache_create_tokens"] == 250 + 30
+    assert s["subagent_turns"] == 2
+    assert s["turns_assistant"] == 5  # 3 main + 2 subagent
+
+
+def test_subagent_turn_numbering(cc_dir_with_subagent):
+    """Subagent turns should continue numbering after main turns."""
+    turns, _ = extract_claude_code(cc_dir_with_subagent, machine="test")
+    turn_numbers = [t["turn_number"] for t in turns]
+    # Main turns: 1, 2, 3; subagent turns: 4, 5
+    assert turn_numbers == [1, 2, 3, 4, 5]
 
 
 def test_empty_projects_dir(tmp_path):
