@@ -8,6 +8,7 @@ from . import __version__
 from .sources._common import default_data_dir, get_hostname
 from .sources.cowork import extract_cowork
 from .sources.claude_code import extract_claude_code
+from .sources.codex import extract_codex
 from .output import write_json, write_csv, write_jsonl
 
 
@@ -18,7 +19,7 @@ def build_parser():
     )
     p.add_argument(
         "--source",
-        choices=["cowork", "claude_code", "all"],
+        choices=["cowork", "claude_code", "codex", "all"],
         default="all",
         help="Which source to extract (default: all)",
     )
@@ -31,6 +32,11 @@ def build_parser():
         "--claude-code-dir",
         metavar="PATH",
         help="Override Claude Code projects directory",
+    )
+    p.add_argument(
+        "--codex-dir",
+        metavar="PATH",
+        help="Override Codex sessions directory",
     )
     p.add_argument(
         "--output",
@@ -127,6 +133,21 @@ def main(argv=None):
                 sources_used.append("claude_code")
         else:
             print("  claude_code: data directory not found, skipping", file=sys.stderr)
+
+    # Extract Codex
+    if args.source in ("codex", "all"):
+        codex_dir = args.codex_dir or default_data_dir("codex")
+        if codex_dir and os.path.isdir(codex_dir):
+            turns, sessions = extract_codex(
+                codex_dir,
+                machine=machine,
+            )
+            all_turns.extend(turns)
+            all_sessions.extend(sessions)
+            if turns or sessions:
+                sources_used.append("codex")
+        else:
+            print("  codex: data directory not found, skipping", file=sys.stderr)
 
     print(
         f"Total: {len(all_turns)} turns, {len(all_sessions)} sessions",

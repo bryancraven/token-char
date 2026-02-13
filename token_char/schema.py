@@ -13,6 +13,7 @@ TURN_FIELDS = [
     "output_tokens",
     "cache_read_tokens",
     "cache_create_tokens",
+    "reasoning_output_tokens",
     "total_tokens",
     "is_subagent",
     "subagent_id",
@@ -33,6 +34,7 @@ SESSION_FIELDS = [
     "total_output_tokens",
     "total_cache_read_tokens",
     "total_cache_create_tokens",
+    "total_reasoning_output_tokens",
     "total_tokens",
     "subagent_turns",
 ]
@@ -50,6 +52,7 @@ _TURN_TYPES = {
     "output_tokens": int,
     "cache_read_tokens": int,
     "cache_create_tokens": int,
+    "reasoning_output_tokens": int,
     "total_tokens": int,
     "is_subagent": bool,
     "subagent_id": (str, type(None)),
@@ -70,6 +73,7 @@ _SESSION_TYPES = {
     "total_output_tokens": int,
     "total_cache_read_tokens": int,
     "total_cache_create_tokens": int,
+    "total_reasoning_output_tokens": int,
     "total_tokens": int,
     "subagent_turns": int,
 }

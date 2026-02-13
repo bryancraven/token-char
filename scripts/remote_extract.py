@@ -7,9 +7,10 @@ Designed to be piped via SSH:
 
 Environment variables:
     MACHINE_NAME        Override hostname (default: platform.node())
-    TC_SOURCE           cowork, claude_code, or all (default: all)
+    TC_SOURCE           cowork, claude_code, codex, or all (default: all)
     TC_COWORK_DIR       Override Cowork data directory
     TC_CLAUDE_CODE_DIR  Override Claude Code projects directory
+    TC_CODEX_DIR        Override Codex sessions directory
 """
 
 import json
@@ -42,6 +43,8 @@ def model_family(model_name):
         return "sonnet"
     if "opus" in m:
         return "opus"
+    if "gpt" in m:
+        return "gpt"
     return "unknown"
 
 
@@ -74,6 +77,9 @@ def default_data_dir(source):
     elif source == "claude_code":
         if system in ("Darwin", "Linux", "Windows"):
             return os.path.expanduser("~/.claude/projects")
+    elif source == "codex":
+        if system in ("Darwin", "Linux", "Windows"):
+            return os.path.expanduser("~/.codex/sessions")
     return None
 
 
@@ -170,6 +176,7 @@ def _parse_cowork_project(data_dir, machine, project_name):
                             "model": mdl, "model_family": model_family(mdl),
                             "input_tokens": inp, "output_tokens": out,
                             "cache_read_tokens": cr, "cache_create_tokens": cc,
+                            "reasoning_output_tokens": 0,
                             "total_tokens": total,
                             "is_subagent": False, "subagent_id": None,
                         })
@@ -210,6 +217,7 @@ def _parse_cowork_project(data_dir, machine, project_name):
             "total_output_tokens": output_tokens,
             "total_cache_read_tokens": cache_read_tokens,
             "total_cache_create_tokens": cache_create_tokens,
+            "total_reasoning_output_tokens": 0,
             "total_tokens": input_tokens + output_tokens + cache_read_tokens + cache_create_tokens,
             "subagent_turns": 0,
         })
@@ -314,6 +322,7 @@ def extract_claude_code(projects_dir, machine):
                                 "model": mdl, "model_family": model_family(mdl),
                                 "input_tokens": inp, "output_tokens": out,
                                 "cache_read_tokens": cr, "cache_create_tokens": cc,
+                                "reasoning_output_tokens": 0,
                                 "total_tokens": total,
                                 "is_subagent": False, "subagent_id": None,
                             })
@@ -381,6 +390,7 @@ def extract_claude_code(projects_dir, machine):
                                 "model": mdl, "model_family": model_family(mdl),
                                 "input_tokens": inp, "output_tokens": out,
                                 "cache_read_tokens": cr, "cache_create_tokens": cc,
+                                "reasoning_output_tokens": 0,
                                 "total_tokens": total,
                                 "is_subagent": True, "subagent_id": agent_id,
                             })
@@ -418,9 +428,179 @@ def extract_claude_code(projects_dir, machine):
                 "total_output_tokens": output_tokens,
                 "total_cache_read_tokens": cache_read_tokens,
                 "total_cache_create_tokens": cache_create_tokens,
+                "total_reasoning_output_tokens": 0,
                 "total_tokens": input_tokens + output_tokens + cache_read_tokens + cache_create_tokens,
                 "subagent_turns": subagent_turns_count,
             })
+
+    return turns, sessions
+
+
+def extract_codex(sessions_dir, machine):
+    """Extract turns and sessions from Codex JSONL session files."""
+    turns = []
+    sessions = []
+    source = "codex"
+
+    if not os.path.isdir(sessions_dir):
+        return turns, sessions
+
+    pattern = os.path.join(sessions_dir, "**", "rollout-*.jsonl")
+    for jf in sorted(glob.glob(pattern, recursive=True)):
+        session_id = ""
+        session_cwd = ""
+        first_user_text = None
+        first_ts = None
+        last_ts = None
+
+        prev_total = {"input_tokens": 0, "cached_input_tokens": 0,
+                      "output_tokens": 0, "reasoning_output_tokens": 0}
+        latest_total = None
+        current_model = ""
+        current_turn_start_ts = None
+        current_turn_total_at_start = None
+
+        session_turns = []
+        turn_number = 0
+
+        try:
+            with open(jf, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    rec_type = rec.get("type", "")
+                    ts_str = rec.get("timestamp", "")
+                    ts_iso = parse_timestamp(ts_str)
+                    if ts_iso:
+                        if first_ts is None:
+                            first_ts = ts_iso
+                        last_ts = ts_iso
+
+                    if rec_type == "session_meta":
+                        payload = rec.get("payload", {})
+                        session_id = payload.get("id", "")
+                        session_cwd = payload.get("cwd", "")
+
+                    elif rec_type == "turn_context":
+                        payload = rec.get("payload", {})
+                        mdl = payload.get("model", "")
+                        if mdl:
+                            current_model = mdl
+
+                    elif rec_type == "event_msg":
+                        payload = rec.get("payload", {})
+                        evt_type = payload.get("type", "")
+
+                        if evt_type == "task_started":
+                            current_turn_start_ts = ts_iso
+                            if latest_total is not None:
+                                current_turn_total_at_start = dict(latest_total)
+                            else:
+                                current_turn_total_at_start = dict(prev_total)
+
+                        elif evt_type == "user_message":
+                            msg_text = payload.get("message", "")
+                            if msg_text and isinstance(msg_text, str):
+                                if first_user_text is None:
+                                    first_user_text = msg_text.strip()
+
+                        elif evt_type == "token_count":
+                            info = payload.get("info")
+                            if info and isinstance(info, dict):
+                                total_usage = info.get("total_token_usage")
+                                if total_usage and isinstance(total_usage, dict):
+                                    latest_total = {
+                                        "input_tokens": total_usage.get("input_tokens", 0),
+                                        "cached_input_tokens": total_usage.get("cached_input_tokens", 0),
+                                        "output_tokens": total_usage.get("output_tokens", 0),
+                                        "reasoning_output_tokens": total_usage.get("reasoning_output_tokens", 0),
+                                    }
+
+                        elif evt_type == "task_complete":
+                            if current_turn_total_at_start is not None and latest_total is not None:
+                                turn_number += 1
+                                delta = {
+                                    k: latest_total[k] - current_turn_total_at_start.get(k, 0)
+                                    for k in latest_total
+                                }
+                                codex_input = delta["input_tokens"]
+                                codex_cached = delta["cached_input_tokens"]
+                                our_input = max(0, codex_input - codex_cached)
+                                our_output = delta["output_tokens"]
+                                our_cache_read = codex_cached
+                                our_reasoning = delta["reasoning_output_tokens"]
+                                our_total = our_input + our_output + our_cache_read
+
+                                project_name = os.path.basename(session_cwd.rstrip("/\\")) or session_cwd or "(unknown)"
+                                session_turns.append({
+                                    "source": source, "machine": machine,
+                                    "project": project_name, "session_id": session_id,
+                                    "turn_number": turn_number, "timestamp": current_turn_start_ts,
+                                    "model": current_model, "model_family": model_family(current_model),
+                                    "input_tokens": our_input, "output_tokens": our_output,
+                                    "cache_read_tokens": our_cache_read, "cache_create_tokens": 0,
+                                    "reasoning_output_tokens": our_reasoning,
+                                    "total_tokens": our_total,
+                                    "is_subagent": False, "subagent_id": None,
+                                })
+                            current_turn_total_at_start = None
+        except OSError:
+            continue
+
+        if not session_turns:
+            continue
+
+        title = "(untitled)"
+        if first_user_text:
+            title = first_user_text[:80]
+            if len(first_user_text) > 80:
+                title += "..."
+
+        duration_min = None
+        if first_ts and last_ts:
+            try:
+                dt_first = datetime.fromisoformat(first_ts)
+                dt_last = datetime.fromisoformat(last_ts)
+                delta_sec = (dt_last - dt_first).total_seconds() / 60
+                if delta_sec > 0:
+                    duration_min = round(delta_sec, 1)
+            except (ValueError, TypeError):
+                pass
+
+        total_input = sum(t["input_tokens"] for t in session_turns)
+        total_output = sum(t["output_tokens"] for t in session_turns)
+        total_cache_read = sum(t["cache_read_tokens"] for t in session_turns)
+        total_reasoning = sum(t["reasoning_output_tokens"] for t in session_turns)
+
+        model_counts = {}
+        for t in session_turns:
+            m = t["model"]
+            if m:
+                model_counts[m] = model_counts.get(m, 0) + 1
+        primary_model = max(model_counts, key=model_counts.get) if model_counts else ""
+
+        project_name = os.path.basename(session_cwd.rstrip("/\\")) or session_cwd or "(unknown)"
+        turns.extend(session_turns)
+        sessions.append({
+            "source": source, "machine": machine,
+            "project": project_name, "session_id": session_id,
+            "title": title, "model": primary_model,
+            "created_at": first_ts, "duration_min": duration_min,
+            "turns_user": turn_number, "turns_assistant": turn_number,
+            "total_input_tokens": total_input,
+            "total_output_tokens": total_output,
+            "total_cache_read_tokens": total_cache_read,
+            "total_cache_create_tokens": 0,
+            "total_reasoning_output_tokens": total_reasoning,
+            "total_tokens": total_input + total_output + total_cache_read,
+            "subagent_turns": 0,
+        })
 
     return turns, sessions
 
@@ -450,6 +630,15 @@ def main():
             all_sessions.extend(s)
             if t or s:
                 sources_used.append("claude_code")
+
+    if tc_source in ("codex", "all"):
+        codex_dir = os.environ.get("TC_CODEX_DIR") or default_data_dir("codex")
+        if codex_dir and os.path.isdir(codex_dir):
+            t, s = extract_codex(codex_dir, machine)
+            all_turns.extend(t)
+            all_sessions.extend(s)
+            if t or s:
+                sources_used.append("codex")
 
     envelope = {
         "token_char_version": VERSION,

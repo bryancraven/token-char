@@ -18,7 +18,7 @@ def parse_timestamp(ts_str):
 
 
 def model_family(model_name):
-    """Classify a model string into opus/sonnet/haiku/unknown."""
+    """Classify a model string into opus/sonnet/haiku/gpt/unknown."""
     if not model_name:
         return "unknown"
     m = model_name.lower()
@@ -28,6 +28,8 @@ def model_family(model_name):
         return "sonnet"
     if "opus" in m:
         return "opus"
+    if "gpt" in m:
+        return "gpt"
     return "unknown"
 
 
@@ -66,6 +68,11 @@ def default_data_dir(source):
     elif source == "claude_code":
         if system in ("Darwin", "Linux", "Windows"):
             return os.path.expanduser("~/.claude/projects")
+        return None
+    elif source == "codex":
+        # Codex uses ~/.codex/sessions on all platforms
+        if system in ("Darwin", "Linux", "Windows"):
+            return os.path.expanduser("~/.codex/sessions")
         return None
     return None
 

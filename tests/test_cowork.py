@@ -103,6 +103,14 @@ def test_model_family(cowork_dir):
     assert families[3] == "sonnet"
 
 
+def test_reasoning_output_tokens_zero(cowork_dir):
+    """Cowork turns should have reasoning_output_tokens=0."""
+    turns, sessions = extract_cowork(cowork_dir, machine="test")
+    for t in turns:
+        assert t["reasoning_output_tokens"] == 0
+    assert sessions[0]["total_reasoning_output_tokens"] == 0
+
+
 def test_skip_first_n(cowork_dir):
     """skip_first_n=1 with only 1 session keeps it (guard: len > skip)."""
     turns, sessions = extract_cowork(cowork_dir, skip_first_n=1, machine="test")

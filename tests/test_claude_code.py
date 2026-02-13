@@ -215,6 +215,14 @@ def test_subagent_turn_numbering(cc_dir_with_subagent):
     assert turn_numbers == [1, 2, 3, 4, 5]
 
 
+def test_reasoning_output_tokens_zero(cc_dir):
+    """Claude Code turns should have reasoning_output_tokens=0."""
+    turns, sessions = extract_claude_code(cc_dir, machine="test")
+    for t in turns:
+        assert t["reasoning_output_tokens"] == 0
+    assert sessions[0]["total_reasoning_output_tokens"] == 0
+
+
 def test_empty_projects_dir(tmp_path):
     """Empty projects dir returns empty results."""
     turns, sessions = extract_claude_code(str(tmp_path), machine="test")

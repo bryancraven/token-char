@@ -1,6 +1,6 @@
 # token-char
 
-Extract per-turn token usage data from Claude Desktop (Cowork) and Claude Code (CLI) session logs.
+Extract per-turn token usage data from Claude Desktop (Cowork), Claude Code (CLI), and OpenAI Codex session logs.
 
 Zero runtime dependencies. Python 3.8+ stdlib only. Supports macOS, Linux, and Windows (Claude Code only; Cowork on Windows is untested).
 
@@ -22,6 +22,9 @@ python -m token_char.extract --format csv --output ./out/
 
 # JSONL output to a file
 python -m token_char.extract --format jsonl --output data.jsonl
+
+# Extract Codex only
+python -m token_char.extract --source codex
 ```
 
 ## CLI Reference
@@ -29,9 +32,10 @@ python -m token_char.extract --format jsonl --output data.jsonl
 ```
 python -m token_char.extract [OPTIONS]
 
-  --source {cowork,claude_code,all}   Which source to extract (default: all)
+  --source {cowork,claude_code,codex,all}  Which source to extract (default: all)
   --cowork-dir PATH                   Override Cowork data directory
   --claude-code-dir PATH              Override Claude Code projects directory
+  --codex-dir PATH                    Override Codex sessions directory
   --output PATH                       File or directory (default: stdout)
   --format {json,csv,jsonl}           Output format (default: json)
   --machine NAME                      Machine name override (default: hostname)
@@ -60,19 +64,20 @@ python -m token_char.extract [OPTIONS]
 
 | Field | Type | Description |
 |---|---|---|
-| `source` | str | `"cowork"` or `"claude_code"` |
+| `source` | str | `"cowork"`, `"claude_code"`, or `"codex"` |
 | `machine` | str | Hostname or `--machine` override |
 | `project` | str | Project name |
 | `session_id` | str | Session UUID |
 | `turn_number` | int | 1-indexed within session |
 | `timestamp` | str/null | ISO 8601 UTC |
 | `model` | str | Full model string |
-| `model_family` | str | `"opus"` / `"sonnet"` / `"haiku"` / `"unknown"` |
+| `model_family` | str | `"opus"` / `"sonnet"` / `"haiku"` / `"gpt"` / `"unknown"` |
 | `input_tokens` | int | Fresh (non-cached) input |
-| `output_tokens` | int | Generated output |
+| `output_tokens` | int | Generated output (includes reasoning tokens) |
 | `cache_read_tokens` | int | Cached input |
 | `cache_create_tokens` | int | Input written to cache |
-| `total_tokens` | int | Sum of four token fields |
+| `reasoning_output_tokens` | int | Reasoning/thinking output tokens (subset of `output_tokens`, NOT additive in `total_tokens`). 0 for sources without reasoning breakdown. |
+| `total_tokens` | int | `input + output + cache_read + cache_create` (reasoning NOT added) |
 | `is_subagent` | bool | `true` if turn is from a subagent |
 | `subagent_id` | str/null | Agent ID (e.g. `"ab884ec"`) or `null` |
 
@@ -80,7 +85,7 @@ python -m token_char.extract [OPTIONS]
 
 | Field | Type | Description |
 |---|---|---|
-| `source` | str | `"cowork"` or `"claude_code"` |
+| `source` | str | `"cowork"`, `"claude_code"`, or `"codex"` |
 | `machine` | str | Hostname |
 | `project` | str | Project name |
 | `session_id` | str | UUID |
@@ -94,6 +99,7 @@ python -m token_char.extract [OPTIONS]
 | `total_output_tokens` | int | Summed |
 | `total_cache_read_tokens` | int | Summed |
 | `total_cache_create_tokens` | int | Summed |
+| `total_reasoning_output_tokens` | int | Summed reasoning tokens (subset of output, NOT additive in total) |
 | `total_tokens` | int | Grand total |
 | `subagent_turns` | int | Count of subagent assistant turns |
 
@@ -107,9 +113,10 @@ ssh user@host python3 < scripts/remote_extract.py > host.json
 
 Configure with environment variables:
 - `MACHINE_NAME` — override hostname
-- `TC_SOURCE` — `cowork`, `claude_code`, or `all` (default: `all`)
+- `TC_SOURCE` — `cowork`, `claude_code`, `codex`, or `all` (default: `all`)
 - `TC_COWORK_DIR` — override Cowork data directory
 - `TC_CLAUDE_CODE_DIR` — override Claude Code projects directory
+- `TC_CODEX_DIR` — override Codex sessions directory
 
 ## Data Sources
 
@@ -135,6 +142,22 @@ On Windows, project directory names encode the full path with the drive letter, 
 Files:
 - `<session-id>.jsonl` — main session log
 - `<session-id>/subagents/agent-<id>.jsonl` — subagent logs (parsed automatically)
+
+### OpenAI Codex
+
+Session data location (all platforms): `~/.codex/sessions/YYYY/MM/DD/`
+
+Files:
+- `rollout-<timestamp>-<session-id>.jsonl` — full session log (metadata, turns, token usage)
+
+Token accounting notes:
+- OpenAI's `input_tokens` includes cached tokens; token-char decomposes this into `input_tokens` (fresh) and `cache_read_tokens` (cached)
+- OpenAI's `output_tokens` includes reasoning tokens; `reasoning_output_tokens` breaks out the reasoning subset
+- `cache_create_tokens` is always 0 (Codex doesn't expose this)
+
+### GitHub Copilot (native VS Code agent)
+
+**Not supported.** GitHub Copilot does not log token usage data locally. There are no local session files with token counts to extract.
 
 ## Testing
 

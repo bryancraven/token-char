@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A standalone, stdlib-only Python toolkit that extracts per-turn token usage data from Claude Desktop (Cowork) and Claude Code (CLI) session logs. Produces structured JSON/CSV/JSONL output at per-turn grain — sufficient to recreate all charts/tables from the PDF reports in the sibling `cowork_usage_report` repo.
+A standalone, stdlib-only Python toolkit that extracts per-turn token usage data from Claude Desktop (Cowork), Claude Code (CLI), and OpenAI Codex session logs. Produces structured JSON/CSV/JSONL output at per-turn grain — sufficient to recreate all charts/tables from the PDF reports in the sibling `cowork_usage_report` repo.
 
 ## Running
 
@@ -33,7 +33,8 @@ token_char/
 ├── sources/
 │   ├── _common.py     # Shared: timestamp parsing, model_family, platform paths (macOS/Linux/Windows)
 │   ├── cowork.py      # Cowork (Claude Desktop) parser
-│   └── claude_code.py # Claude Code (CLI) parser
+│   ├── claude_code.py # Claude Code (CLI) parser
+│   └── codex.py       # OpenAI Codex parser (handles ~/.codex/sessions/ data)
 ├── output.py          # JSON/CSV/JSONL writers
 └── extract.py         # CLI entry point (also __main__.py)
 ```
@@ -41,15 +42,17 @@ token_char/
 ### Data Flow
 
 1. `extract.py` parses CLI args, resolves platform-specific data directories
-2. Source parsers (`cowork.py`, `claude_code.py`) read session files and produce lists of turn/session dicts conforming to `schema.py`
+2. Source parsers (`cowork.py`, `claude_code.py`, `codex.py`) read session files and produce lists of turn/session dicts conforming to `schema.py`
 3. `output.py` serializes to the requested format
 
 ### Key Patterns
 
-- **Per-turn grain**: Every assistant response is one turn dict with 4 token fields (input, output, cache_read, cache_create) plus `is_subagent`/`subagent_id` for provenance
+- **Per-turn grain**: Every assistant response is one turn dict with 4 token fields (input, output, cache_read, cache_create) plus `reasoning_output_tokens` and `is_subagent`/`subagent_id` for provenance
+- **reasoning_output_tokens**: Informational field — subset of `output_tokens`, NOT additive in `total_tokens`. Non-zero for Codex (from OpenAI API), 0 for Claude sources
 - **Subagent parsing**: Claude Code sessions may have `<session-id>/subagents/agent-<id>.jsonl` files — these are parsed automatically and their tokens included in session aggregates
 - **Windows path encoding**: Project directory names use drive letter + `--` + path segments separated by `-` (e.g. `C--Users-foo-bar` → `C:\Users\foo\bar`)
-- **model_family()**: Substring classification → opus/sonnet/haiku/unknown
+- **Codex token decomposition**: OpenAI convention — input includes cached, output includes reasoning. Parser decomposes: `our_input = codex_input - codex_cached`, `our_cache_read = codex_cached`
+- **model_family()**: Substring classification → opus/sonnet/haiku/gpt/unknown
 - **is_genuine_user_turn()**: Filters out tool_result callback lists from user turn counts
 - **Cowork timestamp**: `_audit_timestamp` field (with fallback to `message._audit_timestamp`)
 - **Claude Code timestamp**: `timestamp` field directly on the record
@@ -67,6 +70,11 @@ token_char/
   - Windows: `%USERPROFILE%\.claude\projects\<encoded-path>\`
   - `<session-id>.jsonl` — main session log
   - `<session-id>/subagents/agent-<id>.jsonl` — subagent logs (parsed automatically)
+- **Codex**:
+  - All platforms: `~/.codex/sessions/YYYY/MM/DD/`
+  - `rollout-<timestamp>-<session-id>.jsonl` — full session log
+  - Uses cumulative `total_token_usage` deltas between `task_started`/`task_complete` events for per-turn tokens
+- **GitHub Copilot** (native VS Code agent): NOT supported — does not log token usage locally
 
 ## Testing
 

@@ -154,6 +154,23 @@ def test_json_output_subagent_fields(sample_data, tmp_path):
         assert "subagent_turns" in s, "Missing subagent_turns in session"
 
 
+def test_json_output_reasoning_fields(sample_data, tmp_path):
+    """JSON output should include reasoning_output_tokens in turns and total_reasoning_output_tokens in sessions."""
+    turns, sessions = sample_data
+    out_path = str(tmp_path / "out_reason.json")
+
+    write_json(turns, sessions, out_path, "test-host", ["cowork"], "0.1.0")
+
+    with open(out_path) as f:
+        data = json.load(f)
+
+    for t in data["turns"]:
+        assert "reasoning_output_tokens" in t, "Missing reasoning_output_tokens in turn"
+
+    for s in data["sessions"]:
+        assert "total_reasoning_output_tokens" in s, "Missing total_reasoning_output_tokens in session"
+
+
 def test_csv_output_subagent_fields(sample_data, tmp_path):
     """CSV output should include subagent columns."""
     turns, sessions = sample_data

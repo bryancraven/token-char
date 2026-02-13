@@ -146,6 +146,7 @@ def extract_claude_code(projects_dir, project_map=None, machine=""):
                                 "output_tokens": out,
                                 "cache_read_tokens": cr,
                                 "cache_create_tokens": cc,
+                                "reasoning_output_tokens": 0,
                                 "total_tokens": total,
                                 "is_subagent": False,
                                 "subagent_id": None,
@@ -221,6 +222,7 @@ def extract_claude_code(projects_dir, project_map=None, machine=""):
                                 "output_tokens": out,
                                 "cache_read_tokens": cr,
                                 "cache_create_tokens": cc,
+                                "reasoning_output_tokens": 0,
                                 "total_tokens": total,
                                 "is_subagent": True,
                                 "subagent_id": agent_id,
@@ -267,6 +269,7 @@ def extract_claude_code(projects_dir, project_map=None, machine=""):
                 "total_output_tokens": output_tokens,
                 "total_cache_read_tokens": cache_read_tokens,
                 "total_cache_create_tokens": cache_create_tokens,
+                "total_reasoning_output_tokens": 0,
                 "total_tokens": input_tokens + output_tokens + cache_read_tokens + cache_create_tokens,
                 "subagent_turns": subagent_turns_count,
             })
