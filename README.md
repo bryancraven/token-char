@@ -159,6 +159,37 @@ Token accounting notes:
 
 **Not supported.** GitHub Copilot does not log token usage data locally. There are no local session files with token counts to extract.
 
+### Cross-source field mapping
+
+All three sources produce the same unified schema, but the underlying data differs. Here's what maps cleanly and what doesn't.
+
+**What maps cleanly across all sources:**
+- `input_tokens` — all sources provide this (Codex bundles cached inside input, so we decompose: `codex_input - codex_cached = our_input`)
+- `output_tokens` — all sources provide this directly
+- `cache_read_tokens` — all sources provide this (Codex calls it `cached_input_tokens`)
+- `session_id`, `timestamp`, `model`, `project` — present in all sources
+- Turn structure — all have clear turn boundaries (Claude: one `assistant` record per turn; Codex: `task_started` to `task_complete` per turn)
+- Session structure — all have one session per file
+
+**Key differences between sources:**
+
+| | Claude (Cowork / Code) | Codex |
+|---|---|---|
+| `cache_create_tokens` | Real values (can be significant) | **Always 0** — Codex doesn't expose this |
+| `reasoning_output_tokens` | Always 0 (not available) | Real values — subset of `output_tokens` |
+| Turn granularity | Each API response = 1 turn (tool-use loops produce multiple turns per user message) | Each user task = 1 turn (may contain many API calls internally) |
+| Subagents | Separate `.jsonl` files, tracked via `is_subagent`/`subagent_id` | Not exposed in session logs |
+| Token reporting | Per-response absolute values | Cumulative session totals — we compute deltas |
+| `turns_user` vs `turns_assistant` | Can differ (e.g. 1 user message triggers 6 assistant turns) | Always equal (1 task = 1 turn) |
+
+**Biggest gap: `cache_create_tokens`**
+
+Codex provides no visibility into cache *writes*. For Claude, `cache_create_tokens` can be significant (e.g. 19k tokens in a single session). For Codex this is always 0 — not because nothing is cached, but because the OpenAI API doesn't report it. This means Codex `total_tokens` may slightly understate real usage if cache creation cost matters to your analysis.
+
+**Turn granularity difference**
+
+Claude Code fires one turn per API round-trip, so a tool-use loop of 6 API calls produces 6 turns under 1 user message. Codex wraps the entire user task — potentially many API calls, tool invocations, and reasoning steps — into a single turn between `task_started` and `task_complete`. Codex turns are coarser; each one is more like a "session segment" than a single API call. Keep this in mind when comparing per-turn token averages across sources.
+
 ## Testing
 
 ```bash
