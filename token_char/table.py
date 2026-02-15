@@ -1,5 +1,6 @@
 """Human-readable table formatter for token-char."""
 
+import os
 import sys
 
 from .stats import compute_source_stats, fmt_k
@@ -54,6 +55,17 @@ def _commas(n):
 def _pct(val, decimals=1):
     """Format percentage: 91.3 -> '91.3%'."""
     return f"{val:.{decimals}f}%"
+
+
+def _short_project(name):
+    """Shorten project name for display: use basename for paths, passthrough otherwise."""
+    if not name or name == "(unknown)":
+        return name or "(unknown)"
+    # Looks like an absolute path — use basename
+    if name.startswith("/") or (len(name) >= 3 and name[1] == ":" and name[2] in ("/", "\\")):
+        base = os.path.basename(name)
+        return base if base else name
+    return name
 
 
 def _header_line(width, cs):
@@ -216,7 +228,7 @@ def _write_session_detail(stats, sessions, out, cs):
     out.write(hdr + "\n")
 
     for i, s in enumerate(src_sessions, 1):
-        proj = (s.get("project") or "(unknown)")[:14]
+        proj = _short_project(s.get("project"))[:14]
         title = (s.get("title") or "")[:22]
         if len(s.get("title") or "") > 22:
             title = title[:19] + "..."
@@ -264,6 +276,7 @@ def _write_project_summary(stats, out, cs):
 
     for proj_name in sorted(projects.keys()):
         p = projects[proj_name]
+        display_name = _short_project(proj_name)
         # Model family short label
         model = p.get("model", "")
         for fam in ("opus", "sonnet", "haiku", "gpt"):
@@ -274,7 +287,7 @@ def _write_project_summary(stats, out, cs):
             model = model[:8]
 
         out.write(
-            f"  {proj_name[:16]:<16}  {p['sessions']:>8}  {p['turns']:>6}  "
+            f"  {display_name[:16]:<16}  {p['sessions']:>8}  {p['turns']:>6}  "
             f"{model:<8}  {fmt_k(p['total_tokens']):>12}\n"
         )
 
