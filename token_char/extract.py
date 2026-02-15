@@ -45,9 +45,15 @@ def build_parser():
     )
     p.add_argument(
         "--format",
-        choices=["json", "csv", "jsonl"],
+        choices=["json", "csv", "jsonl", "table"],
         default="json",
         help="Output format (default: json)",
+    )
+    p.add_argument(
+        "--detail",
+        choices=["sessions", "all"],
+        default="sessions",
+        help="Detail level for table format (default: sessions)",
     )
     p.add_argument(
         "--machine",
@@ -69,6 +75,11 @@ def build_parser():
         help="Skip N oldest Cowork sessions",
     )
     p.add_argument(
+        "--ascii",
+        action="store_true",
+        help="Force ASCII output (no Unicode box-drawing characters)",
+    )
+    p.add_argument(
         "--quiet",
         action="store_true",
         help="Suppress stderr progress messages",
@@ -81,7 +92,17 @@ def build_parser():
     return p
 
 
+def _ensure_utf8_stdout():
+    """On Windows, reconfigure stdout to UTF-8 if possible."""
+    if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except (AttributeError, OSError):
+            pass  # Fall through — _detect_charset will pick ASCII
+
+
 def main(argv=None):
+    _ensure_utf8_stdout()
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -184,6 +205,12 @@ def main(argv=None):
             else:
                 out_path = dest
         write_jsonl(all_turns, all_sessions, out_path)
+
+    elif fmt == "table":
+        if dest:
+            print("warning: --output ignored for table format (writes to stdout)", file=sys.stderr)
+        from .table import write_table
+        write_table(all_turns, all_sessions, detail=args.detail, ascii=args.ascii)
 
 
 if __name__ == "__main__":

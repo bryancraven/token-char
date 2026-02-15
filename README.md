@@ -1,15 +1,18 @@
 # token-char
 
-Extract per-turn token usage data from Claude Desktop (Cowork), Claude Code (CLI), and OpenAI Codex session logs.
+Extract per-turn token usage data from Claude Desktop (Cowork), Claude Code (CLI), and OpenAI Codex (CLI, Desktop app, and VS Code extension) session logs.
 
 Zero runtime dependencies. Python 3.8+ stdlib only. Supports macOS, Linux, and Windows (Claude Code only; Cowork on Windows is untested).
 
 ## Quick Start
 
 ```bash
-# Clone
-git clone git@github.com:bryancraven/token-char.git
+# Clone (HTTPS — works behind corporate firewalls)
+git clone https://github.com/bryancraven/token-char.git
 cd token-char
+
+# Or via SSH
+# git clone git@github.com:bryancraven/token-char.git
 
 # Extract all sources to stdout as JSON
 python -m token_char.extract
@@ -23,7 +26,10 @@ python -m token_char.extract --format csv --output ./out/
 # JSONL output to a file
 python -m token_char.extract --format jsonl --output data.jsonl
 
-# Extract Codex only
+# Human-readable terminal summary
+python -m token_char.extract --format table
+
+# Extract Codex only (CLI + Desktop app + VS Code sessions)
 python -m token_char.extract --source codex
 ```
 
@@ -37,7 +43,9 @@ python -m token_char.extract [OPTIONS]
   --claude-code-dir PATH              Override Claude Code projects directory
   --codex-dir PATH                    Override Codex sessions directory
   --output PATH                       File or directory (default: stdout)
-  --format {json,csv,jsonl}           Output format (default: json)
+  --format {json,csv,jsonl,table}     Output format (default: json)
+  --detail {sessions,all}             Detail level for table format (default: sessions)
+  --ascii                             Force ASCII output (no Unicode box-drawing chars)
   --machine NAME                      Machine name override (default: hostname)
   --project-map KEY=VAL               Map dir names to friendly names (repeatable)
   --skip-first-n N                    Skip N oldest Cowork sessions
@@ -143,12 +151,22 @@ Files:
 - `<session-id>.jsonl` — main session log
 - `<session-id>/subagents/agent-<id>.jsonl` — subagent logs (parsed automatically)
 
-### OpenAI Codex
+### OpenAI Codex (CLI, Desktop App, VS Code Extension)
+
+All three Codex clients — CLI (`codex_cli_rs`), Desktop app (`Codex Desktop`), and VS Code extension (`codex_vscode`) — write session logs to the same location.
 
 Session data location (all platforms): `~/.codex/sessions/YYYY/MM/DD/`
 
 Files:
 - `rollout-<timestamp>-<session-id>.jsonl` — full session log (metadata, turns, token usage)
+
+**Note:** The Codex Desktop app also stores data in `~/Library/Application Support/Codex/` (macOS), but that directory contains only Electron app state (binary). The actual session JSONL logs are in `~/.codex/sessions/`.
+
+Turn boundary protocols (parser auto-detects):
+- **Newer CLI**: `task_started`/`task_complete` event pairs — each pair = one turn (per-task granularity)
+- **Desktop app / VS Code / older CLI**: No task boundary events. Parser uses non-zero `token_count` deltas — each = one API round-trip (per-API-call granularity, typically much finer than per-task)
+
+The `session_meta.originator` field identifies the client: `"Codex Desktop"`, `"codex_vscode"`, or `"codex_cli_rs"`.
 
 Token accounting notes:
 - OpenAI's `input_tokens` includes cached tokens; token-char decomposes this into `input_tokens` (fresh) and `cache_read_tokens` (cached)
@@ -168,7 +186,7 @@ All three sources produce the same unified schema, but the underlying data diffe
 - `output_tokens` — all sources provide this directly
 - `cache_read_tokens` — all sources provide this (Codex calls it `cached_input_tokens`)
 - `session_id`, `timestamp`, `model`, `project` — present in all sources
-- Turn structure — all have clear turn boundaries (Claude: one `assistant` record per turn; Codex: `task_started` to `task_complete` per turn)
+- Turn structure — all have clear turn boundaries (Claude: one `assistant` record per turn; Codex: per-API-call or per-task depending on client)
 - Session structure — all have one session per file
 
 **Key differences between sources:**
@@ -177,10 +195,10 @@ All three sources produce the same unified schema, but the underlying data diffe
 |---|---|---|
 | `cache_create_tokens` | Real values (can be significant) | **Always 0** — Codex doesn't expose this |
 | `reasoning_output_tokens` | Always 0 (not available) | Real values — subset of `output_tokens` |
-| Turn granularity | Each API response = 1 turn (tool-use loops produce multiple turns per user message) | Each user task = 1 turn (may contain many API calls internally) |
+| Turn granularity | Each API response = 1 turn (tool-use loops produce multiple turns per user message) | Varies by client: per-API-call for Desktop/VSCode (comparable to Claude), per-task for newer CLI (coarser) |
 | Subagents | Separate `.jsonl` files, tracked via `is_subagent`/`subagent_id` | Not exposed in session logs |
-| Token reporting | Per-response absolute values | Cumulative session totals — we compute deltas |
-| `turns_user` vs `turns_assistant` | Can differ (e.g. 1 user message triggers 6 assistant turns) | Always equal (1 task = 1 turn) |
+| Token reporting | Per-response absolute values | Cumulative session totals — parser computes deltas |
+| `turns_user` vs `turns_assistant` | Can differ (e.g. 1 user message triggers 6 assistant turns) | Differ for Desktop/VSCode (many API-call turns per user message); equal for CLI per-task protocol |
 
 **Biggest gap: `cache_create_tokens`**
 
@@ -188,7 +206,13 @@ Codex provides no visibility into cache *writes*. For Claude, `cache_create_toke
 
 **Turn granularity difference**
 
-Claude Code fires one turn per API round-trip, so a tool-use loop of 6 API calls produces 6 turns under 1 user message. Codex wraps the entire user task — potentially many API calls, tool invocations, and reasoning steps — into a single turn between `task_started` and `task_complete`. Codex turns are coarser; each one is more like a "session segment" than a single API call. Keep this in mind when comparing per-turn token averages across sources.
+Claude Code fires one turn per API round-trip, so a tool-use loop of 6 API calls produces 6 turns under 1 user message.
+
+Codex turn granularity depends on the client:
+- **Desktop app / VS Code extension**: The parser extracts per-API-call turns from `token_count` deltas. This is comparable to Claude Code's granularity — a session with 4 user messages may produce 87 turns (one per API call).
+- **Newer CLI** (`codex_cli_rs` with `task_started`/`task_complete`): Wraps the entire user task into a single turn. This is coarser — each turn is more like a "session segment."
+
+The parser auto-detects which protocol a session uses. Token totals are exact regardless of protocol; only the per-turn breakdown differs.
 
 ## Testing
 
