@@ -2,7 +2,7 @@
 
 Extract per-turn token usage data from Claude Desktop (Cowork), Claude Code (CLI), and OpenAI Codex (CLI, Desktop app, and VS Code extension) session logs.
 
-Zero runtime dependencies. Python 3.8+ stdlib only. Supports macOS, Linux, and Windows (Claude Code only; Cowork on Windows is untested).
+Zero runtime dependencies. Python 3.8+ stdlib only. Supports macOS, Linux, and Windows.
 
 ## Quick Start
 
