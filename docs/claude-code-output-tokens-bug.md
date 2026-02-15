@@ -1,6 +1,6 @@
 # Claude Code JSONL Logs Record Incorrect `output_tokens`
 
-> Filed upstream: [anthropics/claude-code#25941](https://github.com/anthropics/claude-code/issues/25941)
+> Filed upstream: [anthropics/claude-code#25941](https://github.com/anthropics/claude-code/issues/25941), see also [#21971](https://github.com/anthropics/claude-code/issues/21971) (independent report confirming the same root cause)
 
 ## Summary
 

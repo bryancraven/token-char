@@ -206,7 +206,7 @@ def _write_source_block(stats, out, cs):
     elif is_claude_code:
         out.write(f"\n  {cs.dagger} Claude Code session logs record a placeholder for output_tokens\n")
         out.write(f"    (typically 1-2) instead of the real value. Output and total token counts\n")
-        out.write(f"    are significantly understated. See: github.com/anthropics/claude-code/issues/25941\n")
+        out.write(f"    are significantly understated. See: github.com/anthropics/claude-code/issues/25941, /21971\n")
 
     out.write("\n")
 

@@ -4,7 +4,7 @@ Extract per-turn token usage data from Claude Desktop (Cowork), Claude Code (CLI
 
 Zero runtime dependencies. Python 3.8+ stdlib only. Supports macOS, Linux, and Windows.
 
-**Note:** Claude Code session logs record a placeholder for `output_tokens` (typically 1-2) instead of the real value. This is an [upstream logging bug](https://github.com/anthropics/claude-code/issues/25941) — Claude Code `output_tokens` and `total_tokens` will be significantly understated. Input and cache token fields are accurate. See [Known Limitations](#known-limitations) for details.
+**Note:** Claude Code session logs record a placeholder for `output_tokens` (typically 1-2) instead of the real value. This is an upstream logging bug ([#25941](https://github.com/anthropics/claude-code/issues/25941), [#21971](https://github.com/anthropics/claude-code/issues/21971)) — Claude Code `output_tokens` and `total_tokens` will be significantly understated. Input and cache token fields are accurate. See [Known Limitations](#known-limitations) for details.
 
 ## Quick Start
 
@@ -226,7 +226,7 @@ This is an upstream Claude Code logging issue, not a token-char parsing bug. It 
 
 **Impact:** Claude Code `total_output_tokens` and `total_tokens` will be significantly understated. Cowork and Codex output token counts are unaffected.
 
-See [docs/claude-code-output-tokens-bug.md](docs/claude-code-output-tokens-bug.md) for the full investigation, controlled experiment results, and reproduction steps. Filed upstream: [anthropics/claude-code#25941](https://github.com/anthropics/claude-code/issues/25941)
+See [docs/claude-code-output-tokens-bug.md](docs/claude-code-output-tokens-bug.md) for the full investigation, controlled experiment results, and reproduction steps. Filed upstream: [anthropics/claude-code#25941](https://github.com/anthropics/claude-code/issues/25941), see also [#21971](https://github.com/anthropics/claude-code/issues/21971)
 
 ## Testing
 
