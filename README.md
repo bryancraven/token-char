@@ -4,6 +4,8 @@ Extract per-turn token usage data from Claude Desktop (Cowork), Claude Code (CLI
 
 Zero runtime dependencies. Python 3.8+ stdlib only. Supports macOS, Linux, and Windows.
 
+**Note:** Claude Code session logs record a placeholder for `output_tokens` (typically 1-2) instead of the real value. This is an [upstream logging bug](https://github.com/anthropics/claude-code/issues/25941) — Claude Code `output_tokens` and `total_tokens` will be significantly understated. Input and cache token fields are accurate. See [Known Limitations](#known-limitations) for details.
+
 ## Quick Start
 
 ```bash
@@ -81,11 +83,11 @@ python -m token_char.extract [OPTIONS]
 | `model` | str | Full model string |
 | `model_family` | str | `"opus"` / `"sonnet"` / `"haiku"` / `"gpt"` / `"unknown"` |
 | `input_tokens` | int | Fresh (non-cached) input |
-| `output_tokens` | int | Generated output (includes reasoning tokens) |
+| `output_tokens` | int | Generated output (includes reasoning tokens). **Claude Code values are understated** — see [Known Limitations](#known-limitations) |
 | `cache_read_tokens` | int | Cached input |
 | `cache_create_tokens` | int | Input written to cache |
 | `reasoning_output_tokens` | int | Reasoning/thinking output tokens (subset of `output_tokens`, NOT additive in `total_tokens`). 0 for sources without reasoning breakdown. |
-| `total_tokens` | int | `input + output + cache_read + cache_create` (reasoning NOT added) |
+| `total_tokens` | int | `input + output + cache_read + cache_create` (reasoning NOT added). **Claude Code values are understated** due to `output_tokens` |
 | `is_subagent` | bool | `true` if turn is from a subagent |
 | `subagent_id` | str/null | Agent ID (e.g. `"ab884ec"`) or `null` |
 
@@ -104,11 +106,11 @@ python -m token_char.extract [OPTIONS]
 | `turns_user` | int | Genuine user messages |
 | `turns_assistant` | int | Assistant responses |
 | `total_input_tokens` | int | Summed |
-| `total_output_tokens` | int | Summed |
+| `total_output_tokens` | int | Summed. **Claude Code values are understated** — see [Known Limitations](#known-limitations) |
 | `total_cache_read_tokens` | int | Summed |
 | `total_cache_create_tokens` | int | Summed |
 | `total_reasoning_output_tokens` | int | Summed reasoning tokens (subset of output, NOT additive in total) |
-| `total_tokens` | int | Grand total |
+| `total_tokens` | int | Grand total. **Claude Code values are understated** due to `output_tokens` |
 | `subagent_turns` | int | Count of subagent assistant turns |
 
 ## Remote Extraction
@@ -183,7 +185,7 @@ All three sources produce the same unified schema, but the underlying data diffe
 
 **What maps cleanly across all sources:**
 - `input_tokens` — all sources provide this (Codex bundles cached inside input, so we decompose: `codex_input - codex_cached = our_input`)
-- `output_tokens` — all sources provide this directly
+- `output_tokens` — all sources provide this directly (**caveat:** Claude Code values are understated due to [upstream bug](https://github.com/anthropics/claude-code/issues/25941))
 - `cache_read_tokens` — all sources provide this (Codex calls it `cached_input_tokens`)
 - `session_id`, `timestamp`, `model`, `project` — present in all sources
 - Turn structure — all have clear turn boundaries (Claude: one `assistant` record per turn; Codex: per-API-call or per-task depending on client)
