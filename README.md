@@ -214,6 +214,18 @@ Codex turn granularity depends on the client:
 
 The parser auto-detects which protocol a session uses. Token totals are exact regardless of protocol; only the per-turn breakdown differs.
 
+## Known Limitations
+
+### Claude Code `output_tokens` are understated
+
+Claude Code JSONL session logs record a **placeholder value** (typically 1-2) for `output_tokens` on assistant records. The real output token count — which can be 10-1000x larger — is only available in the streaming `result` event, which Claude Code does not persist to the session file. All other usage fields (`input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`) are accurate.
+
+This is an upstream Claude Code logging issue, not a token-char parsing bug. It affects any tool reading Claude Code session logs directly.
+
+**Impact:** Claude Code `total_output_tokens` and `total_tokens` will be significantly understated. Cowork and Codex output token counts are unaffected.
+
+See [docs/claude-code-output-tokens-bug.md](docs/claude-code-output-tokens-bug.md) for the full investigation, controlled experiment results, and reproduction steps. Filed upstream: [anthropics/claude-code#25941](https://github.com/anthropics/claude-code/issues/25941)
+
 ## Testing
 
 ```bash
