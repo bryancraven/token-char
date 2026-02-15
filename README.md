@@ -1,6 +1,6 @@
 # token-char
 
-Extract per-turn token usage data from Claude Desktop (Cowork), Claude Code (CLI), and OpenAI Codex (CLI, Desktop app, and VS Code extension) session logs.
+Extract per-turn token usage data from Claude Desktop (Cowork), Claude Code (CLI), and OpenAI Codex (CLI, Desktop app, and VS Code extension) session logs. Both Claude Code and Codex support VS Code extension sessions. **GitHub Copilot is not supported** — it does not log token usage locally.
 
 Zero runtime dependencies. Python 3.8+ stdlib only. Supports macOS, Linux, and Windows.
 
