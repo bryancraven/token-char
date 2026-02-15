@@ -138,7 +138,10 @@ def _write_source_block(stats, out, cs):
     else:
         _stat_row("Cache Create", ts["cache_create"])
         _stat_row("Input (novel)", ts["input"])
-        _stat_row("Output", ts["output"])
+        if is_claude_code:
+            _stat_row(f"Output {cs.dagger}", ts["output"])
+        else:
+            _stat_row("Output", ts["output"])
 
     _stat_row("Total", ts["total"])
     out.write("\n")
@@ -196,10 +199,14 @@ def _write_source_block(stats, out, cs):
         sa_pct = (sa / total * 100) if total else 0
         out.write(f"  Subagent turns: {_commas(sa)} of {_commas(total)} ({sa_pct:.1f}%)\n")
 
-    # Codex footnotes
+    # Source-specific footnotes
     if is_codex:
         out.write(f"\n  * Codex turns = per-API-call when available (Desktop/VSCode sessions),\n")
         out.write(f"    per-task for older CLI sessions. Token totals are exact either way.\n")
+    elif is_claude_code:
+        out.write(f"\n  {cs.dagger} Claude Code session logs record a placeholder for output_tokens\n")
+        out.write(f"    (typically 1-2) instead of the real value. Output and total token counts\n")
+        out.write(f"    are significantly understated. See: github.com/anthropics/claude-code/issues/25941\n")
 
     out.write("\n")
 
