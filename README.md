@@ -111,6 +111,7 @@ python -m token_char.extract [OPTIONS]
 | `total_cache_create_tokens` | int | Summed |
 | `total_reasoning_output_tokens` | int | Summed reasoning tokens (subset of output, NOT additive in total) |
 | `total_tokens` | int | Grand total. **Claude Code values are understated** due to `output_tokens` |
+| `total_cost_usd` | float/null | Session cost in USD. Available for Cowork sessions with `result` records; `null` for Claude Code and Codex |
 | `subagent_turns` | int | Count of subagent assistant turns |
 
 ## Remote Extraction
@@ -224,7 +225,9 @@ Claude Code JSONL session logs record a **placeholder value** (typically 1-2) fo
 
 This is an upstream Claude Code logging issue, not a token-char parsing bug. It affects any tool reading Claude Code session logs directly.
 
-**Impact:** Claude Code `total_output_tokens` and `total_tokens` will be significantly understated. Cowork and Codex output token counts are unaffected.
+**Impact:** Claude Code `total_output_tokens` and `total_tokens` will be significantly understated. Codex output token counts are unaffected.
+
+**Cowork (Claude Desktop)** has the same per-turn placeholder bug — per-turn `output_tokens` are typically 1-27 regardless of actual response length. However, Cowork audit logs include `result` records with correct cumulative `output_tokens` at the end of each conversation segment. token-char uses these `result` records to produce accurate session-level `total_output_tokens`. Per-turn output values remain understated but session totals are correct.
 
 See [docs/claude-code-output-tokens-bug.md](docs/claude-code-output-tokens-bug.md) for the full investigation, controlled experiment results, and reproduction steps. Filed upstream: [anthropics/claude-code#25941](https://github.com/anthropics/claude-code/issues/25941), see also [#21971](https://github.com/anthropics/claude-code/issues/21971)
 

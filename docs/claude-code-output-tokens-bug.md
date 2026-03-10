@@ -66,7 +66,19 @@ In a typical Claude Code session (147 assistant turns), scanning existing logs s
 
 **For the last turn in any session**: No next turn exists to measure cache delta against.
 
-## Environment
+## Cowork (Claude Desktop) Has the Same Bug
+
+Cowork per-turn `output_tokens` exhibit the same placeholder pattern as Claude Code. In a 139-turn Cowork session ("AI Model Context Length Timeline Analysis"), per-turn `output_tokens` ranged from 1-27 (median 3), summing to 2,788. The real total from `result` records was 88,769 — a **31.8x understatement**.
+
+Unlike Claude Code, Cowork audit logs include `result` records at the end of each conversation segment with correct cumulative usage. token-char uses these to produce accurate session-level `total_output_tokens` for Cowork sessions.
+
+**Claude Code has no such fallback** — its JSONL session logs contain zero `result` records, making it impossible to recover real output token counts from the logs alone.
+
+## Status in Claude Code v2.1.72 (March 2026)
+
+The bug is **partially improved but not fixed**. Some assistant turns now report plausible `output_tokens` values (254, 326, 567, 1042, 1076, 1199) while most still show placeholder values (8-9). The pattern suggests output tokens may be correct for non-streaming or non-tool-use responses, but still placeholder for streaming/tool-use responses. Still no `result` records in Claude Code JSONL logs.
+
+## Environment (original investigation)
 
 - Claude Code version: 2.1.42
 - Model: claude-opus-4-6

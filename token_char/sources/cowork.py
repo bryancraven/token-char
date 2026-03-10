@@ -89,6 +89,11 @@ def _parse_project(data_dir, machine, skip_first_n, project_name):
         session_turns = []
         assistant_turn_num = 0
 
+        # Accumulators for result records (corrected output_tokens + cost)
+        result_output_tokens = 0
+        result_cost_usd = 0.0
+        has_result_records = False
+
         try:
             with open(audit_path, "r", encoding="utf-8") as fh:
                 for line in fh:
@@ -130,6 +135,10 @@ def _parse_project(data_dir, machine, skip_first_n, project_name):
                         cache_read_tokens += cr
                         cache_create_tokens += cc
 
+                        # Detect sub-agent turns via parent_tool_use_id
+                        parent_id = rec.get("parent_tool_use_id")
+                        is_sub = bool(parent_id)
+
                         session_turns.append({
                             "source": source,
                             "machine": machine,
@@ -145,9 +154,28 @@ def _parse_project(data_dir, machine, skip_first_n, project_name):
                             "cache_create_tokens": cc,
                             "reasoning_output_tokens": 0,
                             "total_tokens": total,
-                            "is_subagent": False,
-                            "subagent_id": None,
+                            "is_subagent": is_sub,
+                            "subagent_id": parent_id,
                         })
+
+                    elif rec_type == "result":
+                        has_result_records = True
+                        # Prefer modelUsage (includes sub-agent tokens)
+                        # over top-level usage (primary thread only).
+                        model_usage = rec.get("modelUsage", {})
+                        if model_usage:
+                            for _mu in model_usage.values():
+                                result_output_tokens += _mu.get(
+                                    "outputTokens", 0
+                                )
+                        else:
+                            usage = rec.get("usage", {})
+                            result_output_tokens += usage.get(
+                                "output_tokens", 0
+                            )
+                        cost = rec.get("total_cost_usd")
+                        if cost is not None:
+                            result_cost_usd += cost
         except OSError:
             continue
 
@@ -177,6 +205,18 @@ def _parse_project(data_dir, machine, skip_first_n, project_name):
         if model_counts:
             primary_model = max(model_counts, key=model_counts.get)
 
+        subagent_count = sum(1 for t in session_turns if t["is_subagent"])
+
+        # Use result-record output_tokens when available (per-turn
+        # output_tokens are understated placeholders, same bug as Claude
+        # Code #25941). Input/cache per-turn values are already accurate.
+        if has_result_records:
+            final_output = result_output_tokens
+            final_cost = round(result_cost_usd, 6) if result_cost_usd else None
+        else:
+            final_output = output_tokens
+            final_cost = None
+
         raw_sessions.append({
             "created_at_ms": created_at_ms,
             "session_id": session_id,
@@ -193,12 +233,13 @@ def _parse_project(data_dir, machine, skip_first_n, project_name):
                 "turns_user": turns_user,
                 "turns_assistant": turns_assistant,
                 "total_input_tokens": input_tokens,
-                "total_output_tokens": output_tokens,
+                "total_output_tokens": final_output,
                 "total_cache_read_tokens": cache_read_tokens,
                 "total_cache_create_tokens": cache_create_tokens,
                 "total_reasoning_output_tokens": 0,
-                "total_tokens": input_tokens + output_tokens + cache_read_tokens + cache_create_tokens,
-                "subagent_turns": 0,
+                "total_tokens": input_tokens + final_output + cache_read_tokens + cache_create_tokens,
+                "total_cost_usd": final_cost,
+                "subagent_turns": subagent_count,
             },
         })
 

@@ -192,8 +192,8 @@ def _write_source_block(stats, out, cs):
                 f"p90={fmt_k(sout['p90'])}  max={fmt_k(sout['max'])}\n"
             )
 
-    # Subagent line (claude_code only)
-    if is_claude_code and stats["total_turns"] > 0:
+    # Subagent line
+    if stats["total_turns"] > 0:
         sa = stats["subagent_turns"]
         total = stats["total_turns"]
         sa_pct = (sa / total * 100) if total else 0
@@ -227,8 +227,11 @@ def _write_session_detail(stats, sessions, out, cs):
     out.write(f"  Sessions {cs.thin_line}{cs.thin_line} {label}\n")
     out.write(f"  {_thin_line(74, cs)}\n")
 
+    # Check if any session in this source has subagent turns
+    has_subagents = any(s.get("subagent_turns", 0) > 0 for s in src_sessions)
+
     # Column headers
-    if is_claude_code:
+    if has_subagents:
         hdr = f"  {'#':>3}  {'Project':<14}  {'Title':<22}  {'Model':<8}  {'U/A(+S)':>9}  {'Total':>8}"
     else:
         hdr = f"  {'#':>3}  {'Project':<14}  {'Title':<22}  {'Model':<8}  {'U/A':>5}  {'Total':>8}"
@@ -253,12 +256,12 @@ def _write_session_detail(stats, sessions, out, cs):
         a = s["turns_assistant"]
         total = fmt_k(s["total_tokens"])
 
-        if is_claude_code and s.get("subagent_turns", 0) > 0:
+        if s.get("subagent_turns", 0) > 0:
             turns_str = f"{u}/{a}(+{s['subagent_turns']})"
         else:
             turns_str = f"{u}/{a}"
 
-        if is_claude_code:
+        if has_subagents:
             out.write(f"  {i:>3}  {proj:<14}  {title:<22}  {model:<8}  {turns_str:>9}  {total:>8}\n")
         else:
             out.write(f"  {i:>3}  {proj:<14}  {title:<22}  {model:<8}  {turns_str:>5}  {total:>8}\n")

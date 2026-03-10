@@ -271,6 +271,7 @@ def extract_claude_code(projects_dir, project_map=None, machine=""):
                 "total_cache_create_tokens": cache_create_tokens,
                 "total_reasoning_output_tokens": 0,
                 "total_tokens": input_tokens + output_tokens + cache_read_tokens + cache_create_tokens,
+                "total_cost_usd": None,
                 "subagent_turns": subagent_turns_count,
             })
 

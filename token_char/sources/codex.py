@@ -380,6 +380,7 @@ def _build_session_dict(completed_turns, source, machine, session_id,
         "total_cache_create_tokens": total_cache_create,
         "total_reasoning_output_tokens": total_reasoning,
         "total_tokens": total_input + total_output + total_cache_read + total_cache_create,
+        "total_cost_usd": None,
         "subagent_turns": 0,
     }
 

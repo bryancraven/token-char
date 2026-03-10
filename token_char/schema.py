@@ -36,6 +36,7 @@ SESSION_FIELDS = [
     "total_cache_create_tokens",
     "total_reasoning_output_tokens",
     "total_tokens",
+    "total_cost_usd",
     "subagent_turns",
 ]
 
@@ -75,6 +76,7 @@ _SESSION_TYPES = {
     "total_cache_create_tokens": int,
     "total_reasoning_output_tokens": int,
     "total_tokens": int,
+    "total_cost_usd": (int, float, type(None)),
     "subagent_turns": int,
 }
 
