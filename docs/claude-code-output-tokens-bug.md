@@ -1,12 +1,29 @@
-# Claude Code JSONL Logs Record Incorrect `output_tokens`
+# Claude Code / Cowork Output Token Logging Notes
 
 > Filed upstream: [anthropics/claude-code#25941](https://github.com/anthropics/claude-code/issues/25941), see also [#21971](https://github.com/anthropics/claude-code/issues/21971) (independent report confirming the same root cause)
 
 ## Summary
 
-Claude Code session JSONL logs (`~/.claude/projects/<project>/<session>.jsonl`) record a **placeholder value** (typically 1-2) for `output_tokens` in the `message.usage` block on assistant records. The real output token count — which can be 10-1000x larger — is only available in the streaming `result` event, which is **never persisted** to the JSONL session file.
+Claude-family logs now have **two distinct accounting problems**:
 
-This means any tool reading Claude Code session logs (including token-char) will dramatically understate output token usage.
+1. Modern Claude Code and Cowork sessions often persist **multiple `assistant` snapshots for one logical response**. If you count each snapshot as a turn, turn counts and input/cache totals are badly inflated.
+2. Per-turn `output_tokens` on Claude-family assistant snapshots is often a **placeholder or partial value**, unless final streaming usage is also persisted.
+
+As of **March 23, 2026**, token-char works around the first problem completely and the second problem conservatively:
+
+| Log shape | What is persisted | Safe workaround |
+|---|---|---|
+| Claude Code older persisted-stream sessions (observed on `2.1.49`) | `assistant` + `stream_event.message_delta` + `result` | Collapse assistant snapshots, recover per-turn output from `message_delta`, recover session output from `result` |
+| Claude Code newer snapshot-only sessions (observed on `2.1.78`) | repeated `assistant` snapshots, usually no final `message_delta` / `result` | Collapse assistant snapshots for correct turn/input/cache totals, keep output conservative and mark it unreliable |
+| Cowork modern sessions | repeated `assistant` snapshots + `result` records | Collapse assistant snapshots for turn/input/cache totals, recover session output from `result.modelUsage` / `result.usage` |
+
+So the old statement "Claude Code has no workaround" is now too broad. The accurate statement is:
+
+- **Turn counts, input totals, cache-read totals, and cache-create totals can be corrected safely** by collapsing duplicate assistant snapshots.
+- **Per-turn output can only be corrected safely when final streaming usage (`message_delta`) is persisted.**
+- **Session output can be corrected safely when `result` records are persisted.**
+
+The original February 15, 2026 controlled experiment below is still valid for the underlying placeholder-output bug. What changed is that newer logs also require snapshot deduplication, and a subset of historical logs now persist enough streaming metadata to recover output safely.
 
 ## Evidence
 
@@ -38,7 +55,7 @@ Capturing `--output-format stream-json` reveals the mechanism. There are two eve
 1. **`assistant` event** (early in stream): `output_tokens: 1` — **this is what gets written to the JSONL**
 2. **`result` event** (end of stream): `output_tokens: 118` — **this has the real value but is never persisted**
 
-The JSONL session file contains only the `assistant` event. The `result` event (which carries the final accumulated `output_tokens`) is used for the `--output-format json` output but is not written to the session log. We confirmed that zero `result`-type records exist across 50+ session JSONL files.
+That was accurate for the February 15, 2026 corpus used in the experiment. In the March 23, 2026 local corpus, the situation is mixed: one older `2.1.49` session persisted `stream_event` and `result`, while newer `2.1.78` sessions persisted repeated `assistant` snapshots without final streaming usage.
 
 ### Cache Delta Validation
 
@@ -66,17 +83,15 @@ In a typical Claude Code session (147 assistant turns), scanning existing logs s
 
 **For the last turn in any session**: No next turn exists to measure cache delta against.
 
-## Cowork (Claude Desktop) Has the Same Bug
+## Cowork (Claude Desktop) Has The Same Output Bug
 
-Cowork per-turn `output_tokens` exhibit the same placeholder pattern as Claude Code. In a 139-turn Cowork session ("AI Model Context Length Timeline Analysis"), per-turn `output_tokens` ranged from 1-27 (median 3), summing to 2,788. The real total from `result` records was 88,769 — a **31.8x understatement**.
+Cowork per-turn `output_tokens` exhibits the same placeholder pattern as Claude Code. In one 139-turn Cowork session, per-turn `output_tokens` ranged from 1-27 (median 3), summing to 2,788, while `result` records reported 88,769.
 
-Unlike Claude Code, Cowork audit logs include `result` records at the end of each conversation segment with correct cumulative usage. token-char uses these to produce accurate session-level `total_output_tokens` for Cowork sessions.
+Unlike snapshot-only Claude Code sessions, Cowork usually persists `result` records, so session-level output totals can be corrected even when per-turn output remains unreliable.
 
-**Claude Code has no such fallback** — its JSONL session logs contain zero `result` records, making it impossible to recover real output token counts from the logs alone.
+## Status In March 2026
 
-## Status in Claude Code v2.1.72 (March 2026)
-
-The bug is **partially improved but not fixed**. Some assistant turns now report plausible `output_tokens` values (254, 326, 567, 1042, 1076, 1199) while most still show placeholder values (8-9). The pattern suggests output tokens may be correct for non-streaming or non-tool-use responses, but still placeholder for streaming/tool-use responses. Still no `result` records in Claude Code JSONL logs.
+The underlying output-token bug is **not fixed**. Some Claude Code assistant snapshots now report plausible `output_tokens`, but many still report placeholder values, especially in streaming/tool-use flows. The newer and more severe practical issue is that both Claude Code and Cowork now emit repeated assistant snapshots for one logical response, so naive row-counting inflates turn/input/cache totals even before you get to the output-token bug.
 
 ## Environment (original investigation)
 

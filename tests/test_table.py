@@ -47,7 +47,7 @@ class TestWriteTable:
         output = buf.getvalue()
 
         assert "Claude Desktop (Cowork)" in output
-        assert "Tokens/Turn (assistant)" in output
+        assert "Tokens/Turn (assistant response)" in output
         assert "Median" in output
         assert "Cache Read" in output
         assert "Cache Create" in output
@@ -83,7 +83,8 @@ class TestWriteTable:
         write_table(turns, sessions, file=buf)
         output = buf.getvalue()
 
-        assert "Turn profile:" in output
+        assert "Turn profile:" not in output
+        assert "assistant snapshots" in output or "placeholder per-turn output_tokens" in output
 
     def test_empty_data(self):
         buf = io.StringIO()
@@ -168,7 +169,7 @@ class TestASCIIMode:
         output = buf.getvalue()
 
         assert "Claude Desktop (Cowork)" in output
-        assert "Tokens/Turn (assistant)" in output
+        assert "Tokens/Turn (assistant response)" in output
         assert "Cache Read" in output
         assert "Cache Create" in output
         assert "Composition:" in output

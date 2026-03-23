@@ -211,6 +211,8 @@ def _parse_session_file(filepath, source, machine):
                                 "model_family": model_family(current_model),
                                 "input_tokens": inp,
                                 "output_tokens": out,
+                                "output_tokens_reliable": True,
+                                "output_tokens_source": "api_usage",
                                 "cache_read_tokens": cr,
                                 "cache_create_tokens": 0,
                                 "reasoning_output_tokens": reason,
@@ -284,6 +286,8 @@ def _turns_from_token_count_deltas(snapshots, source, machine,
             "model_family": model_family(mdl),
             "input_tokens": inp,
             "output_tokens": out,
+            "output_tokens_reliable": True,
+            "output_tokens_source": "api_usage",
             "cache_read_tokens": cr,
             "cache_create_tokens": 0,
             "reasoning_output_tokens": reason,
@@ -314,6 +318,8 @@ def _single_turn_from_totals(final_total, first_ts, model, source, machine,
         "model_family": model_family(model),
         "input_tokens": inp,
         "output_tokens": out,
+        "output_tokens_reliable": True,
+        "output_tokens_source": "api_usage",
         "cache_read_tokens": cr,
         "cache_create_tokens": 0,
         "reasoning_output_tokens": reason,
@@ -376,6 +382,8 @@ def _build_session_dict(completed_turns, source, machine, session_id,
         "turns_assistant": n_turns,
         "total_input_tokens": total_input,
         "total_output_tokens": total_output,
+        "total_output_tokens_reliable": True,
+        "total_output_tokens_source": "api_usage",
         "total_cache_read_tokens": total_cache_read,
         "total_cache_create_tokens": total_cache_create,
         "total_reasoning_output_tokens": total_reasoning,
@@ -389,4 +397,5 @@ def _project_from_cwd(cwd):
     """Derive a project name from the session's working directory."""
     if not cwd:
         return "(unknown)"
-    return os.path.basename(cwd.rstrip("/\\")) or cwd
+    normalized = cwd.rstrip("/\\").replace("\\", "/")
+    return os.path.basename(normalized) or cwd

@@ -59,6 +59,53 @@ def is_genuine_user_turn(content):
     return False
 
 
+def duration_minutes(first_ts, last_ts):
+    if not first_ts or not last_ts:
+        return None
+    try:
+        dt_first = datetime.fromisoformat(first_ts)
+        dt_last = datetime.fromisoformat(last_ts)
+        delta = (dt_last - dt_first).total_seconds() / 60
+        if delta > 0:
+            return round(delta, 1)
+    except (ValueError, TypeError):
+        return None
+    return None
+
+
+def nested_get(obj, path, default=None):
+    cur = obj
+    for part in path.split("."):
+        if isinstance(cur, dict):
+            cur = cur.get(part, default)
+        else:
+            return default
+    return cur
+
+
+def safe_int(value):
+    if value in (None, ""):
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def usage_int(usage, key):
+    if not isinstance(usage, dict):
+        return 0
+    return safe_int(usage.get(key, 0))
+
+
+def response_identity(rec, paths, fallback=None):
+    for path in paths:
+        value = nested_get(rec, path)
+        if value not in (None, ""):
+            return str(value)
+    return fallback
+
+
 def default_data_dir(source):
     system = platform.system()
     if source == "cowork":
@@ -123,13 +170,12 @@ def _parse_cowork_project(data_dir, machine, project_name):
             continue
 
         turns_user = 0
-        turns_assistant = 0
-        input_tokens = 0
-        output_tokens = 0
-        cache_read_tokens = 0
-        cache_create_tokens = 0
-        session_turns = []
-        turn_num = 0
+        response_order = []
+        response_map = {}
+        fallback_idx = 0
+        result_output_tokens = 0
+        result_cost_usd = 0.0
+        has_result_records = False
 
         try:
             with open(audit_path, "r", encoding="utf-8") as fh:
@@ -152,36 +198,91 @@ def _parse_cowork_project(data_dir, machine, project_name):
                             turns_user += 1
 
                     elif rec_type == "assistant":
-                        turns_assistant += 1
-                        turn_num += 1
                         msg = rec.get("message", {})
                         usage = msg.get("usage", {})
+                        if not usage:
+                            continue
                         mdl = msg.get("model", "")
+                        response_key = response_identity(
+                            rec,
+                            ["message.id", "uuid"],
+                            fallback=f"assistant:{fallback_idx}",
+                        )
+                        if response_key not in response_map:
+                            is_subagent = bool(rec.get("parent_tool_use_id"))
+                            response_map[response_key] = {
+                                "source": source,
+                                "machine": machine,
+                                "project": project_name,
+                                "session_id": session_id,
+                                "turn_number": 0,
+                                "timestamp": None,
+                                "model": "",
+                                "model_family": "unknown",
+                                "input_tokens": 0,
+                                "output_tokens": 0,
+                                "output_tokens_reliable": False,
+                                "output_tokens_source": "assistant_snapshot",
+                                "cache_read_tokens": 0,
+                                "cache_create_tokens": 0,
+                                "reasoning_output_tokens": 0,
+                                "total_tokens": 0,
+                                "is_subagent": is_subagent,
+                                "subagent_id": rec.get("parent_tool_use_id"),
+                            }
+                            response_order.append(response_map[response_key])
+                            fallback_idx += 1
 
-                        inp = usage.get("input_tokens", 0)
-                        out = usage.get("output_tokens", 0)
-                        cr = usage.get("cache_read_input_tokens", 0)
-                        cc = usage.get("cache_creation_input_tokens", 0)
-                        total = inp + out + cr + cc
+                        turn = response_map[response_key]
+                        if ts_iso:
+                            turn["timestamp"] = ts_iso
+                        if mdl:
+                            if turn["model"] in ("", "<synthetic>") or mdl != "<synthetic>":
+                                turn["model"] = mdl
+                                turn["model_family"] = model_family(mdl)
+                        turn["input_tokens"] = max(
+                            turn["input_tokens"], usage_int(usage, "input_tokens")
+                        )
+                        turn["output_tokens"] = max(
+                            turn["output_tokens"], usage_int(usage, "output_tokens")
+                        )
+                        turn["cache_read_tokens"] = max(
+                            turn["cache_read_tokens"],
+                            usage_int(usage, "cache_read_input_tokens"),
+                        )
+                        turn["cache_create_tokens"] = max(
+                            turn["cache_create_tokens"],
+                            usage_int(usage, "cache_creation_input_tokens"),
+                        )
+                        turn["total_tokens"] = (
+                            turn["input_tokens"]
+                            + turn["output_tokens"]
+                            + turn["cache_read_tokens"]
+                            + turn["cache_create_tokens"]
+                        )
 
-                        input_tokens += inp
-                        output_tokens += out
-                        cache_read_tokens += cr
-                        cache_create_tokens += cc
-
-                        session_turns.append({
-                            "source": source, "machine": machine,
-                            "project": project_name, "session_id": session_id,
-                            "turn_number": turn_num, "timestamp": ts_iso,
-                            "model": mdl, "model_family": model_family(mdl),
-                            "input_tokens": inp, "output_tokens": out,
-                            "cache_read_tokens": cr, "cache_create_tokens": cc,
-                            "reasoning_output_tokens": 0,
-                            "total_tokens": total,
-                            "is_subagent": False, "subagent_id": None,
-                        })
+                    elif rec_type == "result":
+                        has_result_records = True
+                        model_usage = rec.get("modelUsage", {})
+                        if isinstance(model_usage, dict) and model_usage:
+                            for usage in model_usage.values():
+                                if isinstance(usage, dict):
+                                    result_output_tokens += safe_int(
+                                        usage.get("outputTokens", 0)
+                                    )
+                        else:
+                            result_output_tokens += usage_int(
+                                rec.get("usage", {}),
+                                "output_tokens",
+                            )
+                        cost = rec.get("total_cost_usd")
+                        if cost is not None:
+                            result_cost_usd += cost
         except OSError:
             continue
+
+        for idx, turn in enumerate(response_order, 1):
+            turn["turn_number"] = idx
 
         created_at_ms = meta.get("createdAt")
         last_activity_ms = meta.get("lastActivityAt")
@@ -199,27 +300,50 @@ def _parse_cowork_project(data_dir, machine, project_name):
                 pass
 
         model_counts = {}
-        for t in session_turns:
+        for t in response_order:
             m = t["model"]
             if m and m != "<synthetic>":
                 model_counts[m] = model_counts.get(m, 0) + 1
         primary_model = max(model_counts, key=model_counts.get) if model_counts else meta.get("model", "")
 
-        turns.extend(session_turns)
+        total_input_tokens = sum(t["input_tokens"] for t in response_order)
+        total_cache_read_tokens = sum(t["cache_read_tokens"] for t in response_order)
+        total_cache_create_tokens = sum(t["cache_create_tokens"] for t in response_order)
+        summed_output_tokens = sum(t["output_tokens"] for t in response_order)
+        if has_result_records:
+            total_output_tokens = result_output_tokens
+            total_output_tokens_reliable = True
+            total_output_tokens_source = "result"
+            total_cost_usd = round(result_cost_usd, 6) if result_cost_usd else None
+        else:
+            total_output_tokens = summed_output_tokens
+            total_output_tokens_reliable = False
+            total_output_tokens_source = "assistant_snapshot"
+            total_cost_usd = None
+
+        turns.extend(response_order)
         sessions.append({
             "source": source, "machine": machine,
             "project": project_name, "session_id": session_id,
             "title": meta.get("title") or "(untitled)",
             "model": primary_model,
             "created_at": created_at_iso, "duration_min": duration_min,
-            "turns_user": turns_user, "turns_assistant": turns_assistant,
-            "total_input_tokens": input_tokens,
-            "total_output_tokens": output_tokens,
-            "total_cache_read_tokens": cache_read_tokens,
-            "total_cache_create_tokens": cache_create_tokens,
+            "turns_user": turns_user, "turns_assistant": len(response_order),
+            "total_input_tokens": total_input_tokens,
+            "total_output_tokens": total_output_tokens,
+            "total_output_tokens_reliable": total_output_tokens_reliable,
+            "total_output_tokens_source": total_output_tokens_source,
+            "total_cache_read_tokens": total_cache_read_tokens,
+            "total_cache_create_tokens": total_cache_create_tokens,
             "total_reasoning_output_tokens": 0,
-            "total_tokens": input_tokens + output_tokens + cache_read_tokens + cache_create_tokens,
-            "subagent_turns": 0,
+            "total_tokens": (
+                total_input_tokens
+                + total_output_tokens
+                + total_cache_read_tokens
+                + total_cache_create_tokens
+            ),
+            "total_cost_usd": total_cost_usd,
+            "subagent_turns": sum(1 for t in response_order if t["is_subagent"]),
         })
 
     return turns, sessions
@@ -250,13 +374,14 @@ def extract_claude_code(projects_dir, machine):
             session_id = os.path.splitext(os.path.basename(jf))[0]
 
             turns_user = 0
-            turns_assistant = 0
-            input_tokens = 0
-            output_tokens = 0
-            cache_read_tokens = 0
-            cache_create_tokens = 0
-            session_turns = []
-            turn_num = 0
+            response_order = []
+            response_map = {}
+            fallback_idx = 0
+            stream_output = {}
+            active_stream_key = None
+            last_assistant_key = None
+            result_output_tokens = 0
+            has_result_records = False
             first_user_text = None
             session_model = ""
             first_ts = None
@@ -298,36 +423,125 @@ def extract_claude_code(projects_dir, machine):
                             if not usage:
                                 continue
 
-                            turns_assistant += 1
-                            turn_num += 1
                             mdl = msg.get("model", "")
-                            if mdl and mdl != "<synthetic>" and not session_model:
-                                session_model = mdl
+                            response_key = response_identity(
+                                rec,
+                                ["requestId", "message.id", "uuid"],
+                                fallback=f"assistant:{fallback_idx}",
+                            )
+                            if response_key not in response_map:
+                                response_map[response_key] = {
+                                    "source": source,
+                                    "machine": machine,
+                                    "project": project_name,
+                                    "session_id": session_id,
+                                    "turn_number": 0,
+                                    "timestamp": None,
+                                    "model": "",
+                                    "model_family": "unknown",
+                                    "input_tokens": 0,
+                                    "output_tokens": 0,
+                                    "output_tokens_reliable": False,
+                                    "output_tokens_source": "assistant_snapshot",
+                                    "cache_read_tokens": 0,
+                                    "cache_create_tokens": 0,
+                                    "reasoning_output_tokens": 0,
+                                    "total_tokens": 0,
+                                    "is_subagent": False,
+                                    "subagent_id": None,
+                                    "_response_key": response_key,
+                                }
+                                response_order.append(response_map[response_key])
+                                fallback_idx += 1
 
-                            inp = usage.get("input_tokens", 0)
-                            out = usage.get("output_tokens", 0)
-                            cr = usage.get("cache_read_input_tokens", 0)
-                            cc = usage.get("cache_creation_input_tokens", 0)
-                            total = inp + out + cr + cc
+                            turn = response_map[response_key]
+                            if ts_iso:
+                                turn["timestamp"] = ts_iso
+                            if mdl:
+                                if turn["model"] in ("", "<synthetic>") or mdl != "<synthetic>":
+                                    turn["model"] = mdl
+                                    turn["model_family"] = model_family(mdl)
+                            turn["input_tokens"] = max(
+                                turn["input_tokens"], usage_int(usage, "input_tokens")
+                            )
+                            turn["output_tokens"] = max(
+                                turn["output_tokens"], usage_int(usage, "output_tokens")
+                            )
+                            turn["cache_read_tokens"] = max(
+                                turn["cache_read_tokens"],
+                                usage_int(usage, "cache_read_input_tokens"),
+                            )
+                            turn["cache_create_tokens"] = max(
+                                turn["cache_create_tokens"],
+                                usage_int(usage, "cache_creation_input_tokens"),
+                            )
+                            turn["total_tokens"] = (
+                                turn["input_tokens"]
+                                + turn["output_tokens"]
+                                + turn["cache_read_tokens"]
+                                + turn["cache_create_tokens"]
+                            )
+                            last_assistant_key = response_key
+                            if active_stream_key is None:
+                                active_stream_key = response_key
+                            if turn["model"] and turn["model"] != "<synthetic>" and not session_model:
+                                session_model = turn["model"]
 
-                            input_tokens += inp
-                            output_tokens += out
-                            cache_read_tokens += cr
-                            cache_create_tokens += cc
+                        elif rec_type == "stream_event":
+                            event = rec.get("event", {})
+                            evt_type = event.get("type")
+                            if evt_type == "message_start":
+                                message = event.get("message", {})
+                                active_stream_key = response_identity(
+                                    {"message": message, "uuid": rec.get("uuid")},
+                                    ["message.id", "uuid"],
+                                    fallback=last_assistant_key,
+                                )
+                                mdl = message.get("model", "")
+                                if mdl and mdl != "<synthetic>" and not session_model:
+                                    session_model = mdl
+                            elif evt_type == "message_delta":
+                                usage = event.get("usage", {})
+                                stream_key = active_stream_key or last_assistant_key
+                                if stream_key and usage:
+                                    stream_output[stream_key] = max(
+                                        stream_output.get(stream_key, 0),
+                                        usage_int(usage, "output_tokens"),
+                                    )
+                            elif evt_type == "message_stop":
+                                active_stream_key = None
 
-                            session_turns.append({
-                                "source": source, "machine": machine,
-                                "project": project_name, "session_id": session_id,
-                                "turn_number": turn_num, "timestamp": ts_iso,
-                                "model": mdl, "model_family": model_family(mdl),
-                                "input_tokens": inp, "output_tokens": out,
-                                "cache_read_tokens": cr, "cache_create_tokens": cc,
-                                "reasoning_output_tokens": 0,
-                                "total_tokens": total,
-                                "is_subagent": False, "subagent_id": None,
-                            })
+                        elif rec_type == "result":
+                            has_result_records = True
+                            model_usage = rec.get("modelUsage", {})
+                            if isinstance(model_usage, dict) and model_usage:
+                                for usage in model_usage.values():
+                                    if isinstance(usage, dict):
+                                        result_output_tokens += safe_int(
+                                            usage.get("outputTokens", 0)
+                                        )
+                            else:
+                                result_output_tokens += usage_int(
+                                    rec.get("usage", {}),
+                                    "output_tokens",
+                                )
             except OSError:
                 continue
+
+            for turn in response_order:
+                msg_key = turn.get("_response_key")
+                if msg_key in stream_output:
+                    turn["output_tokens"] = stream_output[msg_key]
+                    turn["output_tokens_reliable"] = True
+                    turn["output_tokens_source"] = "message_delta"
+                    turn["total_tokens"] = (
+                        turn["input_tokens"]
+                        + turn["output_tokens"]
+                        + turn["cache_read_tokens"]
+                        + turn["cache_create_tokens"]
+                    )
+
+            session_turns = list(response_order)
 
             # Parse subagent files for this session
             subagent_turns_count = 0
@@ -342,6 +556,12 @@ def extract_claude_code(projects_dir, machine):
 
                 try:
                     with open(sa_file, "r", encoding="utf-8") as fh:
+                        sa_response_order = []
+                        sa_response_map = {}
+                        sa_fallback_idx = 0
+                        sa_stream_output = {}
+                        sa_active_stream_key = None
+                        sa_last_assistant_key = None
                         for line in fh:
                             line = line.strip()
                             if not line:
@@ -352,14 +572,6 @@ def extract_claude_code(projects_dir, machine):
                                 continue
 
                             rec_type = rec.get("type", "")
-                            if rec_type != "assistant":
-                                continue
-
-                            msg = rec.get("message", {})
-                            usage = msg.get("usage", {})
-                            if not usage:
-                                continue
-
                             ts_str = rec.get("timestamp", "")
                             ts_iso = parse_timestamp(ts_str)
                             if ts_iso:
@@ -367,38 +579,126 @@ def extract_claude_code(projects_dir, machine):
                                     first_ts = ts_iso
                                 last_ts = ts_iso
 
-                            turns_assistant += 1
-                            turn_num += 1
-                            subagent_turns_count += 1
-                            mdl = msg.get("model", "")
+                            if rec_type == "assistant":
+                                msg = rec.get("message", {})
+                                usage = msg.get("usage", {})
+                                if not usage:
+                                    continue
 
-                            inp = usage.get("input_tokens", 0)
-                            out = usage.get("output_tokens", 0)
-                            cr = usage.get("cache_read_input_tokens", 0)
-                            cc = usage.get("cache_creation_input_tokens", 0)
-                            total = inp + out + cr + cc
+                                response_key = response_identity(
+                                    rec,
+                                    ["requestId", "message.id", "uuid"],
+                                    fallback=f"assistant:{sa_fallback_idx}",
+                                )
+                                if response_key not in sa_response_map:
+                                    sa_response_map[response_key] = {
+                                        "source": source,
+                                        "machine": machine,
+                                        "project": project_name,
+                                        "session_id": session_id,
+                                        "turn_number": 0,
+                                        "timestamp": None,
+                                        "model": "",
+                                        "model_family": "unknown",
+                                        "input_tokens": 0,
+                                        "output_tokens": 0,
+                                        "output_tokens_reliable": False,
+                                        "output_tokens_source": "assistant_snapshot",
+                                        "cache_read_tokens": 0,
+                                        "cache_create_tokens": 0,
+                                        "reasoning_output_tokens": 0,
+                                        "total_tokens": 0,
+                                        "is_subagent": True,
+                                        "subagent_id": agent_id,
+                                        "_response_key": response_key,
+                                    }
+                                    sa_response_order.append(sa_response_map[response_key])
+                                    sa_fallback_idx += 1
 
-                            input_tokens += inp
-                            output_tokens += out
-                            cache_read_tokens += cr
-                            cache_create_tokens += cc
+                                turn = sa_response_map[response_key]
+                                if ts_iso:
+                                    turn["timestamp"] = ts_iso
+                                mdl = msg.get("model", "")
+                                if mdl:
+                                    if turn["model"] in ("", "<synthetic>") or mdl != "<synthetic>":
+                                        turn["model"] = mdl
+                                        turn["model_family"] = model_family(mdl)
+                                turn["input_tokens"] = max(
+                                    turn["input_tokens"], usage_int(usage, "input_tokens")
+                                )
+                                turn["output_tokens"] = max(
+                                    turn["output_tokens"], usage_int(usage, "output_tokens")
+                                )
+                                turn["cache_read_tokens"] = max(
+                                    turn["cache_read_tokens"],
+                                    usage_int(usage, "cache_read_input_tokens"),
+                                )
+                                turn["cache_create_tokens"] = max(
+                                    turn["cache_create_tokens"],
+                                    usage_int(usage, "cache_creation_input_tokens"),
+                                )
+                                turn["total_tokens"] = (
+                                    turn["input_tokens"]
+                                    + turn["output_tokens"]
+                                    + turn["cache_read_tokens"]
+                                    + turn["cache_create_tokens"]
+                                )
+                                sa_last_assistant_key = response_key
+                                if sa_active_stream_key is None:
+                                    sa_active_stream_key = response_key
 
-                            session_turns.append({
-                                "source": source, "machine": machine,
-                                "project": project_name, "session_id": session_id,
-                                "turn_number": turn_num, "timestamp": ts_iso,
-                                "model": mdl, "model_family": model_family(mdl),
-                                "input_tokens": inp, "output_tokens": out,
-                                "cache_read_tokens": cr, "cache_create_tokens": cc,
-                                "reasoning_output_tokens": 0,
-                                "total_tokens": total,
-                                "is_subagent": True, "subagent_id": agent_id,
-                            })
+                            elif rec_type == "stream_event":
+                                event = rec.get("event", {})
+                                evt_type = event.get("type")
+                                if evt_type == "message_start":
+                                    message = event.get("message", {})
+                                    sa_active_stream_key = response_identity(
+                                        {"message": message, "uuid": rec.get("uuid")},
+                                        ["message.id", "uuid"],
+                                        fallback=sa_last_assistant_key,
+                                    )
+                                elif evt_type == "message_delta":
+                                    usage = event.get("usage", {})
+                                    stream_key = sa_active_stream_key or sa_last_assistant_key
+                                    if stream_key and usage:
+                                        sa_stream_output[stream_key] = max(
+                                            sa_stream_output.get(stream_key, 0),
+                                            usage_int(usage, "output_tokens"),
+                                        )
+                                elif evt_type == "message_stop":
+                                    sa_active_stream_key = None
                 except OSError:
                     continue
 
+                for turn in sa_response_order:
+                    msg_key = turn.get("_response_key")
+                    if msg_key in sa_stream_output:
+                        turn["output_tokens"] = sa_stream_output[msg_key]
+                        turn["output_tokens_reliable"] = True
+                        turn["output_tokens_source"] = "message_delta"
+                        turn["total_tokens"] = (
+                            turn["input_tokens"]
+                            + turn["output_tokens"]
+                            + turn["cache_read_tokens"]
+                            + turn["cache_create_tokens"]
+                        )
+
+                session_turns.extend(sa_response_order)
+                subagent_turns_count += len(sa_response_order)
+
+            for idx, turn in enumerate(session_turns, 1):
+                turn["turn_number"] = idx
+                turn.pop("_response_key", None)
+
             if not session_turns:
                 continue
+
+            if not session_model:
+                for turn in session_turns:
+                    mdl = turn.get("model", "")
+                    if mdl and mdl != "<synthetic>":
+                        session_model = mdl
+                        break
 
             title = "(untitled)"
             if first_user_text:
@@ -406,16 +706,25 @@ def extract_claude_code(projects_dir, machine):
                 if len(first_user_text) > 80:
                     title += "..."
 
-            duration_min = None
-            if first_ts and last_ts:
-                try:
-                    dt_first = datetime.fromisoformat(first_ts)
-                    dt_last = datetime.fromisoformat(last_ts)
-                    delta = (dt_last - dt_first).total_seconds() / 60
-                    if delta > 0:
-                        duration_min = round(delta, 1)
-                except (ValueError, TypeError):
-                    pass
+            duration_min = duration_minutes(first_ts, last_ts)
+
+            total_input_tokens = sum(t["input_tokens"] for t in session_turns)
+            total_cache_read_tokens = sum(t["cache_read_tokens"] for t in session_turns)
+            total_cache_create_tokens = sum(t["cache_create_tokens"] for t in session_turns)
+            summed_output_tokens = sum(t["output_tokens"] for t in session_turns)
+            all_turn_outputs_reliable = all(
+                t.get("output_tokens_reliable", False) for t in session_turns
+            )
+            if has_result_records:
+                total_output_tokens = result_output_tokens
+                total_output_tokens_reliable = True
+                total_output_tokens_source = "result"
+            else:
+                total_output_tokens = summed_output_tokens
+                total_output_tokens_reliable = all_turn_outputs_reliable
+                total_output_tokens_source = (
+                    "message_delta" if all_turn_outputs_reliable else "assistant_snapshot"
+                )
 
             turns.extend(session_turns)
             sessions.append({
@@ -423,13 +732,21 @@ def extract_claude_code(projects_dir, machine):
                 "project": project_name, "session_id": session_id,
                 "title": title, "model": session_model,
                 "created_at": first_ts, "duration_min": duration_min,
-                "turns_user": turns_user, "turns_assistant": turns_assistant,
-                "total_input_tokens": input_tokens,
-                "total_output_tokens": output_tokens,
-                "total_cache_read_tokens": cache_read_tokens,
-                "total_cache_create_tokens": cache_create_tokens,
+                "turns_user": turns_user, "turns_assistant": len(session_turns),
+                "total_input_tokens": total_input_tokens,
+                "total_output_tokens": total_output_tokens,
+                "total_output_tokens_reliable": total_output_tokens_reliable,
+                "total_output_tokens_source": total_output_tokens_source,
+                "total_cache_read_tokens": total_cache_read_tokens,
+                "total_cache_create_tokens": total_cache_create_tokens,
                 "total_reasoning_output_tokens": 0,
-                "total_tokens": input_tokens + output_tokens + cache_read_tokens + cache_create_tokens,
+                "total_tokens": (
+                    total_input_tokens
+                    + total_output_tokens
+                    + total_cache_read_tokens
+                    + total_cache_create_tokens
+                ),
+                "total_cost_usd": None,
                 "subagent_turns": subagent_turns_count,
             })
 
@@ -537,13 +854,16 @@ def extract_codex(sessions_dir, machine):
                                 our_reasoning = delta["reasoning_output_tokens"]
                                 our_total = our_input + our_output + our_cache_read
 
-                                project_name = os.path.basename(session_cwd.rstrip("/\\")) or session_cwd or "(unknown)"
+                                normalized_cwd = session_cwd.rstrip("/\\").replace("\\", "/")
+                                project_name = os.path.basename(normalized_cwd) or session_cwd or "(unknown)"
                                 session_turns.append({
                                     "source": source, "machine": machine,
                                     "project": project_name, "session_id": session_id,
                                     "turn_number": turn_number, "timestamp": current_turn_start_ts,
                                     "model": current_model, "model_family": model_family(current_model),
                                     "input_tokens": our_input, "output_tokens": our_output,
+                                    "output_tokens_reliable": True,
+                                    "output_tokens_source": "api_usage",
                                     "cache_read_tokens": our_cache_read, "cache_create_tokens": 0,
                                     "reasoning_output_tokens": our_reasoning,
                                     "total_tokens": our_total,
@@ -585,7 +905,8 @@ def extract_codex(sessions_dir, machine):
                 model_counts[m] = model_counts.get(m, 0) + 1
         primary_model = max(model_counts, key=model_counts.get) if model_counts else ""
 
-        project_name = os.path.basename(session_cwd.rstrip("/\\")) or session_cwd or "(unknown)"
+        normalized_cwd = session_cwd.rstrip("/\\").replace("\\", "/")
+        project_name = os.path.basename(normalized_cwd) or session_cwd or "(unknown)"
         turns.extend(session_turns)
         sessions.append({
             "source": source, "machine": machine,
@@ -595,10 +916,13 @@ def extract_codex(sessions_dir, machine):
             "turns_user": turn_number, "turns_assistant": turn_number,
             "total_input_tokens": total_input,
             "total_output_tokens": total_output,
+            "total_output_tokens_reliable": True,
+            "total_output_tokens_source": "api_usage",
             "total_cache_read_tokens": total_cache_read,
             "total_cache_create_tokens": 0,
             "total_reasoning_output_tokens": total_reasoning,
             "total_tokens": total_input + total_output + total_cache_read,
+            "total_cost_usd": None,
             "subagent_turns": 0,
         })
 

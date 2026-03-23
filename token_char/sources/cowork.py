@@ -1,56 +1,84 @@
 """Cowork (Claude Desktop) session parser."""
 
+import glob
 import json
 import os
-import glob
 import sys
 
-from ._common import parse_timestamp, model_family, is_genuine_user_turn, get_hostname
+from ._common import (
+    get_hostname,
+    is_genuine_user_turn,
+    model_family,
+    parse_timestamp,
+    response_identity,
+    safe_int,
+    usage_int,
+)
 
 
-def extract_cowork(data_dir, skip_first_n=0, machine="", project_name=None):
-    """Extract turns and sessions from Cowork audit logs.
+def _assistant_turn_template(source, machine, project_name, session_id,
+                             response_key, is_subagent, subagent_id):
+    return {
+        "source": source,
+        "machine": machine,
+        "project": project_name,
+        "session_id": session_id,
+        "turn_number": 0,
+        "timestamp": None,
+        "model": "",
+        "model_family": "unknown",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "output_tokens_reliable": False,
+        "output_tokens_source": "assistant_snapshot",
+        "cache_read_tokens": 0,
+        "cache_create_tokens": 0,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 0,
+        "is_subagent": is_subagent,
+        "subagent_id": subagent_id,
+        "_response_key": response_key,
+    }
 
-    Args:
-        data_dir: Path to session data. Can be:
-            - Root sessions dir (contains <org>/<project>/ subdirs)
-            - Direct project dir (contains local_*.json files)
-        skip_first_n: Skip the N oldest sessions (chronologically)
-        machine: Machine name override (default: hostname)
-        project_name: Override project name (default: derived from path)
 
-    Returns:
-        (turns, sessions) where turns is a list of per-turn dicts
-        and sessions is a list of per-session dicts.
-    """
-    if not machine:
-        machine = get_hostname()
+def _update_assistant_turn(turn, ts_iso, model, usage):
+    if ts_iso:
+        turn["timestamp"] = ts_iso
+    if model:
+        if turn["model"] in ("", "<synthetic>") or model != "<synthetic>":
+            turn["model"] = model
+            turn["model_family"] = model_family(model)
 
-    # Determine if data_dir is a root dir or a project dir
-    json_pattern = os.path.join(data_dir, "local_*.json")
-    json_files = glob.glob(json_pattern)
+    turn["input_tokens"] = max(turn["input_tokens"], usage_int(usage, "input_tokens"))
+    turn["output_tokens"] = max(turn["output_tokens"], usage_int(usage, "output_tokens"))
+    turn["cache_read_tokens"] = max(
+        turn["cache_read_tokens"],
+        usage_int(usage, "cache_read_input_tokens"),
+    )
+    turn["cache_create_tokens"] = max(
+        turn["cache_create_tokens"],
+        usage_int(usage, "cache_creation_input_tokens"),
+    )
+    turn["total_tokens"] = (
+        turn["input_tokens"]
+        + turn["output_tokens"]
+        + turn["cache_read_tokens"]
+        + turn["cache_create_tokens"]
+    )
 
-    if json_files:
-        # Direct project dir
-        return _parse_project(data_dir, machine, skip_first_n, project_name)
 
-    # Try auto-discovering org/project subdirs
-    all_turns = []
-    all_sessions = []
-    for org_dir in sorted(glob.glob(os.path.join(data_dir, "*"))):
-        if not os.path.isdir(org_dir):
-            continue
-        for proj_dir in sorted(glob.glob(os.path.join(org_dir, "*"))):
-            if not os.path.isdir(proj_dir):
-                continue
-            pname = project_name or os.path.basename(proj_dir)
-            turns, sessions = _parse_project(
-                proj_dir, machine, skip_first_n, pname
-            )
-            all_turns.extend(turns)
-            all_sessions.extend(sessions)
-
-    return all_turns, all_sessions
+def _result_output_tokens(rec):
+    model_usage = rec.get("modelUsage", {})
+    if isinstance(model_usage, dict) and model_usage:
+        total = 0
+        found = False
+        for usage in model_usage.values():
+            if isinstance(usage, dict):
+                total += safe_int(usage.get("outputTokens", 0))
+                found = True
+        if found:
+            return total
+    return usage_int(rec.get("usage", {}), "output_tokens")
 
 
 def _parse_project(data_dir, machine, skip_first_n, project_name):
@@ -81,23 +109,17 @@ def _parse_project(data_dir, machine, skip_first_n, project_name):
             continue
 
         turns_user = 0
-        turns_assistant = 0
-        input_tokens = 0
-        output_tokens = 0
-        cache_read_tokens = 0
-        cache_create_tokens = 0
-        session_turns = []
-        assistant_turn_num = 0
-
-        # Accumulators for result records (corrected output_tokens + cost)
+        response_order = []
+        response_map = {}
+        fallback_idx = 0
         result_output_tokens = 0
         result_cost_usd = 0.0
         has_result_records = False
 
         try:
             with open(audit_path, "r", encoding="utf-8") as fh:
-                for line in fh:
-                    line = line.strip()
+                for raw_line in fh:
+                    line = raw_line.strip()
                     if not line:
                         continue
                     try:
@@ -116,68 +138,55 @@ def _parse_project(data_dir, machine, skip_first_n, project_name):
                         content = rec.get("message", {}).get("content", "")
                         if is_genuine_user_turn(content):
                             turns_user += 1
+                        continue
 
-                    elif rec_type == "assistant":
-                        turns_assistant += 1
-                        assistant_turn_num += 1
+                    if rec_type == "assistant":
                         msg = rec.get("message", {})
                         usage = msg.get("usage", {})
-                        mdl = msg.get("model", "")
+                        if not usage:
+                            continue
 
-                        inp = usage.get("input_tokens", 0)
-                        out = usage.get("output_tokens", 0)
-                        cr = usage.get("cache_read_input_tokens", 0)
-                        cc = usage.get("cache_creation_input_tokens", 0)
-                        total = inp + out + cr + cc
-
-                        input_tokens += inp
-                        output_tokens += out
-                        cache_read_tokens += cr
-                        cache_create_tokens += cc
-
-                        # Detect sub-agent turns via parent_tool_use_id
-                        parent_id = rec.get("parent_tool_use_id")
-                        is_sub = bool(parent_id)
-
-                        session_turns.append({
-                            "source": source,
-                            "machine": machine,
-                            "project": project_name,
-                            "session_id": session_id,
-                            "turn_number": assistant_turn_num,
-                            "timestamp": ts_iso,
-                            "model": mdl,
-                            "model_family": model_family(mdl),
-                            "input_tokens": inp,
-                            "output_tokens": out,
-                            "cache_read_tokens": cr,
-                            "cache_create_tokens": cc,
-                            "reasoning_output_tokens": 0,
-                            "total_tokens": total,
-                            "is_subagent": is_sub,
-                            "subagent_id": parent_id,
-                        })
-
-                    elif rec_type == "result":
-                        has_result_records = True
-                        # Prefer modelUsage (includes sub-agent tokens)
-                        # over top-level usage (primary thread only).
-                        model_usage = rec.get("modelUsage", {})
-                        if model_usage:
-                            for _mu in model_usage.values():
-                                result_output_tokens += _mu.get(
-                                    "outputTokens", 0
-                                )
-                        else:
-                            usage = rec.get("usage", {})
-                            result_output_tokens += usage.get(
-                                "output_tokens", 0
+                        response_key = response_identity(
+                            rec,
+                            ["message.id", "uuid"],
+                            fallback=f"assistant:{fallback_idx}",
+                        )
+                        if response_key not in response_map:
+                            is_subagent = bool(rec.get("parent_tool_use_id"))
+                            turn = _assistant_turn_template(
+                                source,
+                                machine,
+                                project_name,
+                                session_id,
+                                response_key,
+                                is_subagent,
+                                rec.get("parent_tool_use_id"),
                             )
+                            response_map[response_key] = turn
+                            response_order.append(turn)
+                            fallback_idx += 1
+
+                        turn = response_map[response_key]
+                        _update_assistant_turn(
+                            turn,
+                            ts_iso,
+                            msg.get("model", ""),
+                            usage,
+                        )
+                        continue
+
+                    if rec_type == "result":
+                        has_result_records = True
+                        result_output_tokens += _result_output_tokens(rec)
                         cost = rec.get("total_cost_usd")
                         if cost is not None:
                             result_cost_usd += cost
         except OSError:
             continue
+
+        for idx, turn in enumerate(response_order, 1):
+            turn["turn_number"] = idx
+            turn.pop("_response_key", None)
 
         created_at_ms = meta.get("createdAt")
         last_activity_ms = meta.get("lastActivityAt")
@@ -195,66 +204,98 @@ def _parse_project(data_dir, machine, skip_first_n, project_name):
             except (OSError, ValueError, OverflowError):
                 pass
 
-        # Determine primary model (most common non-synthetic)
         model_counts = {}
-        for t in session_turns:
-            m = t["model"]
-            if m and m != "<synthetic>":
-                model_counts[m] = model_counts.get(m, 0) + 1
-        primary_model = ""
-        if model_counts:
-            primary_model = max(model_counts, key=model_counts.get)
+        for turn in response_order:
+            model = turn["model"]
+            if model and model != "<synthetic>":
+                model_counts[model] = model_counts.get(model, 0) + 1
+        primary_model = max(model_counts, key=model_counts.get) if model_counts else meta.get("model", "")
 
-        subagent_count = sum(1 for t in session_turns if t["is_subagent"])
+        total_input_tokens = sum(t["input_tokens"] for t in response_order)
+        total_cache_read_tokens = sum(t["cache_read_tokens"] for t in response_order)
+        total_cache_create_tokens = sum(t["cache_create_tokens"] for t in response_order)
+        summed_output_tokens = sum(t["output_tokens"] for t in response_order)
 
-        # Use result-record output_tokens when available (per-turn
-        # output_tokens are understated placeholders, same bug as Claude
-        # Code #25941). Input/cache per-turn values are already accurate.
         if has_result_records:
-            final_output = result_output_tokens
-            final_cost = round(result_cost_usd, 6) if result_cost_usd else None
+            total_output_tokens = result_output_tokens
+            total_output_tokens_reliable = True
+            total_output_tokens_source = "result"
+            total_cost_usd = round(result_cost_usd, 6) if result_cost_usd else None
         else:
-            final_output = output_tokens
-            final_cost = None
+            total_output_tokens = summed_output_tokens
+            total_output_tokens_reliable = False
+            total_output_tokens_source = "assistant_snapshot"
+            total_cost_usd = None
 
         raw_sessions.append({
             "created_at_ms": created_at_ms,
             "session_id": session_id,
-            "turns": session_turns,
+            "turns": response_order,
             "session_dict": {
                 "source": source,
                 "machine": machine,
                 "project": project_name,
                 "session_id": session_id,
                 "title": meta.get("title") or "(untitled)",
-                "model": primary_model or meta.get("model", ""),
+                "model": primary_model,
                 "created_at": created_at_iso,
                 "duration_min": duration_min,
                 "turns_user": turns_user,
-                "turns_assistant": turns_assistant,
-                "total_input_tokens": input_tokens,
-                "total_output_tokens": final_output,
-                "total_cache_read_tokens": cache_read_tokens,
-                "total_cache_create_tokens": cache_create_tokens,
+                "turns_assistant": len(response_order),
+                "total_input_tokens": total_input_tokens,
+                "total_output_tokens": total_output_tokens,
+                "total_output_tokens_reliable": total_output_tokens_reliable,
+                "total_output_tokens_source": total_output_tokens_source,
+                "total_cache_read_tokens": total_cache_read_tokens,
+                "total_cache_create_tokens": total_cache_create_tokens,
                 "total_reasoning_output_tokens": 0,
-                "total_tokens": input_tokens + final_output + cache_read_tokens + cache_create_tokens,
-                "total_cost_usd": final_cost,
-                "subagent_turns": subagent_count,
+                "total_tokens": (
+                    total_input_tokens
+                    + total_output_tokens
+                    + total_cache_read_tokens
+                    + total_cache_create_tokens
+                ),
+                "total_cost_usd": total_cost_usd,
+                "subagent_turns": sum(1 for t in response_order if t["is_subagent"]),
             },
         })
 
-    # Sort by creation time
     raw_sessions.sort(key=lambda s: s.get("created_at_ms") or 0)
-
-    # Skip first N sessions
     if skip_first_n > 0 and len(raw_sessions) > skip_first_n:
         raw_sessions = raw_sessions[skip_first_n:]
 
     turns = []
     sessions = []
-    for rs in raw_sessions:
-        turns.extend(rs["turns"])
-        sessions.append(rs["session_dict"])
+    for session in raw_sessions:
+        turns.extend(session["turns"])
+        sessions.append(session["session_dict"])
 
     print(f"  cowork: {len(sessions)} sessions, {len(turns)} turns", file=sys.stderr)
     return turns, sessions
+
+
+def extract_cowork(data_dir, skip_first_n=0, machine="", project_name=None):
+    """Extract turns and sessions from Cowork audit logs."""
+    if not machine:
+        machine = get_hostname()
+
+    json_pattern = os.path.join(data_dir, "local_*.json")
+    json_files = glob.glob(json_pattern)
+
+    if json_files:
+        return _parse_project(data_dir, machine, skip_first_n, project_name)
+
+    all_turns = []
+    all_sessions = []
+    for org_dir in sorted(glob.glob(os.path.join(data_dir, "*"))):
+        if not os.path.isdir(org_dir):
+            continue
+        for proj_dir in sorted(glob.glob(os.path.join(org_dir, "*"))):
+            if not os.path.isdir(proj_dir):
+                continue
+            pname = project_name or os.path.basename(proj_dir)
+            turns, sessions = _parse_project(proj_dir, machine, skip_first_n, pname)
+            all_turns.extend(turns)
+            all_sessions.extend(sessions)
+
+    return all_turns, all_sessions

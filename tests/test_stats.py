@@ -91,6 +91,8 @@ class TestComputeSourceStats:
                 "source": "cowork",
                 "input_tokens": 1000,
                 "output_tokens": 5,
+                "output_tokens_reliable": True,
+                "output_tokens_source": "api_usage",
                 "cache_read_tokens": 200,
                 "cache_create_tokens": 100,
                 "reasoning_output_tokens": 0,
@@ -101,6 +103,8 @@ class TestComputeSourceStats:
                 "source": "cowork",
                 "input_tokens": 1500,
                 "output_tokens": 800,
+                "output_tokens_reliable": True,
+                "output_tokens_source": "api_usage",
                 "cache_read_tokens": 500,
                 "cache_create_tokens": 50,
                 "reasoning_output_tokens": 0,
@@ -111,6 +115,8 @@ class TestComputeSourceStats:
                 "source": "cowork",
                 "input_tokens": 2000,
                 "output_tokens": 1200,
+                "output_tokens_reliable": True,
+                "output_tokens_source": "api_usage",
                 "cache_read_tokens": 800,
                 "cache_create_tokens": 200,
                 "reasoning_output_tokens": 0,
@@ -133,6 +139,8 @@ class TestComputeSourceStats:
                 "turns_assistant": 3,
                 "total_input_tokens": 4500,
                 "total_output_tokens": 2005,
+                "total_output_tokens_reliable": True,
+                "total_output_tokens_source": "result",
                 "total_cache_read_tokens": 1500,
                 "total_cache_create_tokens": 350,
                 "total_tokens": 8355,
@@ -176,6 +184,8 @@ class TestComputeSourceStats:
                 "source": "claude_code",
                 "input_tokens": 100,
                 "output_tokens": 50,
+                "output_tokens_reliable": True,
+                "output_tokens_source": "message_delta",
                 "cache_read_tokens": 0,
                 "cache_create_tokens": 0,
                 "reasoning_output_tokens": 0,
@@ -186,6 +196,8 @@ class TestComputeSourceStats:
                 "source": "claude_code",
                 "input_tokens": 100,
                 "output_tokens": 50,
+                "output_tokens_reliable": True,
+                "output_tokens_source": "message_delta",
                 "cache_read_tokens": 0,
                 "cache_create_tokens": 0,
                 "reasoning_output_tokens": 0,
@@ -196,3 +208,31 @@ class TestComputeSourceStats:
         sessions = [{**sample_sessions[0], "source": "claude_code"}]
         result = compute_source_stats(turns, sessions)
         assert result["subagent_turns"] == 1
+
+    def test_unreliable_output_suppresses_turn_profile(self, sample_sessions):
+        turns = [
+            {
+                "source": "cowork",
+                "input_tokens": 100,
+                "output_tokens": 5,
+                "output_tokens_reliable": False,
+                "output_tokens_source": "assistant_snapshot",
+                "cache_read_tokens": 10,
+                "cache_create_tokens": 0,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 115,
+                "is_subagent": False,
+            }
+        ]
+        sessions = [
+            {
+                **sample_sessions[0],
+                "total_output_tokens": 400,
+                "total_output_tokens_reliable": True,
+                "total_output_tokens_source": "result",
+            }
+        ]
+        result = compute_source_stats(turns, sessions)
+        assert result["turn_profile"] is None
+        assert result["substantive_output_stats"] is None
+        assert result["source_totals"]["output"] == 400

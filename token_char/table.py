@@ -83,6 +83,8 @@ def _write_source_block(stats, out, cs):
     c = stats["counts"]
     is_codex = source == "codex"
     is_claude_code = source == "claude_code"
+    turn_output_reliable = stats.get("turn_output_reliable", True)
+    session_output_reliable = stats.get("session_output_reliable", True)
 
     # Date range display
     if c["date_start"] and c["date_end"]:
@@ -110,7 +112,7 @@ def _write_source_block(stats, out, cs):
     if is_codex:
         turn_label = "Tokens/Turn (API call)"
     else:
-        turn_label = "Tokens/Turn (assistant)"
+        turn_label = "Tokens/Turn (assistant response)"
 
     hdr = f"  {turn_label:<{label_w}}  {'Median':>{col_w}}  {'Mean':>{col_w}}  {'P90':>{col_w}}  {'P99':>{col_w}}  {'Max':>{col_w}}"
     out.write(hdr + "\n")
@@ -138,12 +140,11 @@ def _write_source_block(stats, out, cs):
     else:
         _stat_row("Cache Create", ts["cache_create"])
         _stat_row("Input (novel)", ts["input"])
-        if is_claude_code:
-            _stat_row(f"Output {cs.dagger}", ts["output"])
-        else:
-            _stat_row("Output", ts["output"])
+        output_label = f"Output {cs.dagger}" if not turn_output_reliable else "Output"
+        _stat_row(output_label, ts["output"])
 
-    _stat_row("Total", ts["total"])
+    total_label = f"Total {cs.dagger}" if (not is_codex and not turn_output_reliable) else "Total"
+    _stat_row(total_label, ts["total"])
     out.write("\n")
 
     # Session stats (only if >1 session)
@@ -176,7 +177,7 @@ def _write_source_block(stats, out, cs):
         out.write(f"  Cache hit ratio: {_pct(stats['cache_hit_ratio'])}\n")
 
     # Turn profile (skip for codex — all turns are entire tasks)
-    if not is_codex:
+    if not is_codex and stats["turn_profile"] is not None:
         tp = stats["turn_profile"]
         out.write(
             f"  Turn profile: {tp['tool_use_pct']:.0f}% tool-use "
@@ -203,10 +204,20 @@ def _write_source_block(stats, out, cs):
     if is_codex:
         out.write(f"\n  * Codex turns = per-API-call when available (Desktop/VSCode sessions),\n")
         out.write(f"    per-task for older CLI sessions. Token totals are exact either way.\n")
-    elif is_claude_code:
-        out.write(f"\n  {cs.dagger} Claude Code session logs record a placeholder for output_tokens\n")
-        out.write(f"    (typically 1-2) instead of the real value. Output and total token counts\n")
-        out.write(f"    are significantly understated. See: github.com/anthropics/claude-code/issues/25941, /21971\n")
+    elif not turn_output_reliable and source == "cowork":
+        out.write(f"\n  {cs.dagger} Cowork logs persist multiple assistant snapshots per response and\n")
+        out.write(f"    placeholder per-turn output_tokens. Output/total rows above are therefore\n")
+        if session_output_reliable:
+            out.write(f"    unreliable at turn level even though session totals are corrected from result records.\n")
+        else:
+            out.write(f"    unreliable at turn level and session totals remain conservative snapshots.\n")
+    elif not turn_output_reliable and is_claude_code:
+        out.write(f"\n  {cs.dagger} Modern Claude Code logs persist multiple assistant snapshots per\n")
+        out.write(f"    response, and output_tokens is only authoritative when message_delta usage\n")
+        if session_output_reliable:
+            out.write(f"    or result records are available. Session totals are corrected when possible.\n")
+        else:
+            out.write(f"    is persisted. Session totals remain conservative when no final usage is logged.\n")
 
     out.write("\n")
 
@@ -309,7 +320,7 @@ def _write_grand_total(all_stats, out, cs):
     total_sources = len(all_stats)
     total_sessions = sum(s["counts"]["sessions"] for s in all_stats)
     total_turns = sum(s["counts"]["turns"] for s in all_stats)
-    total_tokens = sum(s["turn_stats"]["total"]["sum"] for s in all_stats)
+    total_tokens = sum(s["source_totals"]["total_tokens"] for s in all_stats)
 
     out.write(f"  {_thin_line(74, cs)}\n")
     out.write(
@@ -323,7 +334,7 @@ def _write_grand_total(all_stats, out, cs):
     parts = []
     for s in all_stats:
         label = SOURCE_LABELS.get(s["source"], s["source"]).split("(")[0].strip()
-        tok = s["turn_stats"]["total"]["sum"]
+        tok = s["source_totals"]["total_tokens"]
         pct = (tok / total_tokens * 100) if total_tokens else 0
         parts.append(f"{label}: {fmt_k(tok)} ({pct:.0f}%)")
     if parts:

@@ -1,0 +1,12 @@
+{"type": "system", "version": "2.1.49", "timestamp": "2026-02-15T11:00:00Z"}
+{"type": "user", "message": {"content": "Check the deploy logs"}, "sessionId": "sess-stream", "cwd": "/home/user/project", "timestamp": "2026-02-15T11:00:01Z"}
+{"type": "stream_event", "event": {"type": "message_start", "message": {"id": "msg_stream_1", "model": "claude-opus-4-6", "usage": {"input_tokens": 100, "cache_creation_input_tokens": 5, "cache_read_input_tokens": 10, "output_tokens": 1}}}, "session_id": "sess-stream", "uuid": "stream-1a"}
+{"type": "assistant", "uuid": "assistant-stream-1", "message": {"id": "msg_stream_1", "model": "claude-opus-4-6", "usage": {"input_tokens": 100, "output_tokens": 1, "cache_read_input_tokens": 10, "cache_creation_input_tokens": 5}, "content": [{"type": "text", "text": "Looking now."}]}, "timestamp": "2026-02-15T11:00:02Z"}
+{"type": "stream_event", "event": {"type": "message_delta", "usage": {"input_tokens": 100, "cache_creation_input_tokens": 5, "cache_read_input_tokens": 10, "output_tokens": 150}}, "session_id": "sess-stream", "uuid": "stream-1b"}
+{"type": "stream_event", "event": {"type": "message_stop"}, "session_id": "sess-stream", "uuid": "stream-1c"}
+{"type": "user", "message": {"content": "Now check the worker logs"}, "timestamp": "2026-02-15T11:00:05Z"}
+{"type": "stream_event", "event": {"type": "message_start", "message": {"id": "msg_stream_2", "model": "claude-opus-4-6", "usage": {"input_tokens": 200, "cache_creation_input_tokens": 15, "cache_read_input_tokens": 20, "output_tokens": 2}}}, "session_id": "sess-stream", "uuid": "stream-2a"}
+{"type": "assistant", "uuid": "assistant-stream-2", "message": {"id": "msg_stream_2", "model": "claude-opus-4-6", "usage": {"input_tokens": 200, "output_tokens": 2, "cache_read_input_tokens": 20, "cache_creation_input_tokens": 15}, "content": [{"type": "tool_use", "id": "toolu_stream_2", "name": "Bash", "input": {}}]}, "timestamp": "2026-02-15T11:00:07Z"}
+{"type": "stream_event", "event": {"type": "message_delta", "usage": {"input_tokens": 200, "cache_creation_input_tokens": 15, "cache_read_input_tokens": 20, "output_tokens": 275}}, "session_id": "sess-stream", "uuid": "stream-2b"}
+{"type": "stream_event", "event": {"type": "message_stop"}, "session_id": "sess-stream", "uuid": "stream-2c"}
+{"type": "result", "usage": {"output_tokens": 425}, "session_id": "sess-stream", "uuid": "result-1", "timestamp": "2026-02-15T11:00:08Z"}

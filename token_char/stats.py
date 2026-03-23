@@ -58,10 +58,10 @@ def compute_source_stats(turns, sessions):
         - counts: sessions, turns, date range
         - turn_stats: percentile_stats for each token field + total
         - session_stats: turns-per-session and tokens-per-session stats
-        - composition: % of total by token type
+        - composition: % of authoritative session total by token type
         - cache_hit_ratio: cache_read / (cache_read + input)
-        - turn_profile: % tool-use (output<=10) vs substantive (output>10)
-        - substantive_output_stats: percentile_stats for output on substantive turns
+        - turn_profile: % tool-use (output<=10) vs substantive (output>10), or None
+        - substantive_output_stats: percentile_stats for output on substantive turns, or None
         - subagent_turns: count and total
     """
     if not turns and not sessions:
@@ -102,40 +102,57 @@ def compute_source_stats(turns, sessions):
         "tokens_per_session": percentile_stats(tokens_per_session),
     }
 
-    # Composition
-    grand_total = sum(total_vals) if total_vals else 0
-    sum_input = sum(input_vals)
-    sum_output = sum(output_vals)
-    sum_cache_read = sum(cache_read_vals)
-    sum_cache_create = sum(cache_create_vals)
+    # Source-level totals should come from session aggregates, not the sum of raw
+    # turn rows. Claude-family per-turn output can be unreliable even when session
+    # totals are corrected from result/message_delta records.
+    source_totals = {
+        "input": sum(s["total_input_tokens"] for s in sessions),
+        "output": sum(s["total_output_tokens"] for s in sessions),
+        "cache_read": sum(s["total_cache_read_tokens"] for s in sessions),
+        "cache_create": sum(s["total_cache_create_tokens"] for s in sessions),
+    }
+    source_totals["total_tokens"] = (
+        source_totals["input"]
+        + source_totals["output"]
+        + source_totals["cache_read"]
+        + source_totals["cache_create"]
+    )
 
     def pct(val):
-        return (val / grand_total * 100) if grand_total else 0.0
+        return (val / source_totals["total_tokens"] * 100) if source_totals["total_tokens"] else 0.0
 
     composition = {
-        "cache_read": pct(sum_cache_read),
-        "cache_create": pct(sum_cache_create),
-        "input": pct(sum_input),
-        "output": pct(sum_output),
+        "cache_read": pct(source_totals["cache_read"]),
+        "cache_create": pct(source_totals["cache_create"]),
+        "input": pct(source_totals["input"]),
+        "output": pct(source_totals["output"]),
     }
 
     # Cache hit ratio
-    cache_denom = sum_cache_read + sum_input
-    cache_hit_ratio = (sum_cache_read / cache_denom * 100) if cache_denom else 0.0
+    cache_denom = source_totals["cache_read"] + source_totals["input"]
+    cache_hit_ratio = (source_totals["cache_read"] / cache_denom * 100) if cache_denom else 0.0
 
-    # Turn profile: tool-use (output<=10) vs substantive (output>10)
-    tool_use_turns = sum(1 for t in turns if t["output_tokens"] <= 10)
-    substantive_turns = len(turns) - tool_use_turns
-    turn_profile = {
-        "tool_use": tool_use_turns,
-        "substantive": substantive_turns,
-        "tool_use_pct": (tool_use_turns / len(turns) * 100) if turns else 0.0,
-        "substantive_pct": (substantive_turns / len(turns) * 100) if turns else 0.0,
-    }
+    turn_output_reliable = all(t.get("output_tokens_reliable", True) for t in turns)
+    session_output_reliable = all(
+        s.get("total_output_tokens_reliable", True) for s in sessions
+    )
 
-    # Substantive output stats
-    substantive_output_vals = [t["output_tokens"] for t in turns if t["output_tokens"] > 10]
-    substantive_output_stats = percentile_stats(substantive_output_vals)
+    if turn_output_reliable:
+        tool_use_turns = sum(1 for t in turns if t["output_tokens"] <= 10)
+        substantive_turns = len(turns) - tool_use_turns
+        turn_profile = {
+            "tool_use": tool_use_turns,
+            "substantive": substantive_turns,
+            "tool_use_pct": (tool_use_turns / len(turns) * 100) if turns else 0.0,
+            "substantive_pct": (substantive_turns / len(turns) * 100) if turns else 0.0,
+        }
+        substantive_output_vals = [
+            t["output_tokens"] for t in turns if t["output_tokens"] > 10
+        ]
+        substantive_output_stats = percentile_stats(substantive_output_vals)
+    else:
+        turn_profile = None
+        substantive_output_stats = None
 
     # Subagent info
     subagent_count = sum(1 for t in turns if t.get("is_subagent"))
@@ -170,8 +187,11 @@ def compute_source_stats(turns, sessions):
         },
         "turn_stats": turn_stats,
         "session_stats": session_stats,
+        "source_totals": source_totals,
         "composition": composition,
         "cache_hit_ratio": cache_hit_ratio,
+        "turn_output_reliable": turn_output_reliable,
+        "session_output_reliable": session_output_reliable,
         "turn_profile": turn_profile,
         "substantive_output_stats": substantive_output_stats,
         "subagent_turns": subagent_count,

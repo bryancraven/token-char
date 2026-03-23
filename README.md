@@ -4,7 +4,7 @@ Extract per-turn token usage data from Claude Desktop (Cowork), Claude Code (CLI
 
 Zero runtime dependencies. Python 3.8+ stdlib only. Supports macOS, Linux, and Windows.
 
-**Note:** Claude Code session logs record a placeholder for `output_tokens` (typically 1-2) instead of the real value. This is an upstream logging bug ([#25941](https://github.com/anthropics/claude-code/issues/25941), [#21971](https://github.com/anthropics/claude-code/issues/21971)) — Claude Code `output_tokens` and `total_tokens` will be significantly understated. Input and cache token fields are accurate. See [Known Limitations](#known-limitations) for details.
+**Note:** Modern Claude-family logs have two separate issues: repeated `assistant` snapshots for one logical response, and unreliable per-turn `output_tokens` unless final streaming usage is persisted. token-char now dedupes logical responses for Claude Code and Cowork, corrects Cowork session output totals from `result` records, and marks output reliability explicitly with `*_output_tokens_reliable` / `*_output_tokens_source`. See [Known Limitations](#known-limitations) for details.
 
 ## Quick Start
 
@@ -83,11 +83,13 @@ python -m token_char.extract [OPTIONS]
 | `model` | str | Full model string |
 | `model_family` | str | `"opus"` / `"sonnet"` / `"haiku"` / `"gpt"` / `"unknown"` |
 | `input_tokens` | int | Fresh (non-cached) input |
-| `output_tokens` | int | Generated output (includes reasoning tokens). **Claude Code values are understated** — see [Known Limitations](#known-limitations) |
+| `output_tokens` | int | Generated output (includes reasoning tokens). Use `output_tokens_reliable` and `output_tokens_source` before deriving methodology-sensitive stats. |
+| `output_tokens_reliable` | bool | `true` when per-turn output came from an authoritative source (`message_delta` for Claude Code, API usage for Codex) |
+| `output_tokens_source` | str | Where per-turn output came from: `assistant_snapshot`, `message_delta`, `result`, or `api_usage` |
 | `cache_read_tokens` | int | Cached input |
 | `cache_create_tokens` | int | Input written to cache |
 | `reasoning_output_tokens` | int | Reasoning/thinking output tokens (subset of `output_tokens`, NOT additive in `total_tokens`). 0 for sources without reasoning breakdown. |
-| `total_tokens` | int | `input + output + cache_read + cache_create` (reasoning NOT added). **Claude Code values are understated** due to `output_tokens` |
+| `total_tokens` | int | `input + output + cache_read + cache_create` (reasoning NOT added). Per-turn totals inherit `output_tokens` reliability. |
 | `is_subagent` | bool | `true` if turn is from a subagent |
 | `subagent_id` | str/null | Agent ID (e.g. `"ab884ec"`) or `null` |
 
@@ -106,11 +108,13 @@ python -m token_char.extract [OPTIONS]
 | `turns_user` | int | Genuine user messages |
 | `turns_assistant` | int | Assistant responses |
 | `total_input_tokens` | int | Summed |
-| `total_output_tokens` | int | Summed. **Claude Code values are understated** — see [Known Limitations](#known-limitations) |
+| `total_output_tokens` | int | Summed session output |
+| `total_output_tokens_reliable` | bool | `true` when session output came from `result`, complete `message_delta`, or API usage |
+| `total_output_tokens_source` | str | Source of the session output total: `assistant_snapshot`, `message_delta`, `result`, or `api_usage` |
 | `total_cache_read_tokens` | int | Summed |
 | `total_cache_create_tokens` | int | Summed |
 | `total_reasoning_output_tokens` | int | Summed reasoning tokens (subset of output, NOT additive in total) |
-| `total_tokens` | int | Grand total. **Claude Code values are understated** due to `output_tokens` |
+| `total_tokens` | int | Grand total using the session-level output total above |
 | `total_cost_usd` | float/null | Session cost in USD. Available for Cowork sessions with `result` records; `null` for Claude Code and Codex |
 | `subagent_turns` | int | Count of subagent assistant turns |
 
@@ -186,10 +190,10 @@ All three sources produce the same unified schema, but the underlying data diffe
 
 **What maps cleanly across all sources:**
 - `input_tokens` — all sources provide this (Codex bundles cached inside input, so we decompose: `codex_input - codex_cached = our_input`)
-- `output_tokens` — all sources provide this directly (**caveat:** Claude Code values are understated due to [upstream bug](https://github.com/anthropics/claude-code/issues/25941))
+- `output_tokens` — all sources expose an output field, but Claude-family sources may require reliability checks (`*_output_tokens_reliable`, `*_output_tokens_source`)
 - `cache_read_tokens` — all sources provide this (Codex calls it `cached_input_tokens`)
 - `session_id`, `timestamp`, `model`, `project` — present in all sources
-- Turn structure — all have clear turn boundaries (Claude: one `assistant` record per turn; Codex: per-API-call or per-task depending on client)
+- Turn structure — all have clear logical turn boundaries (Claude-family sources may require collapsing repeated assistant snapshots first; Codex is per-API-call or per-task depending on client)
 - Session structure — all have one session per file
 
 **Key differences between sources:**
@@ -219,15 +223,18 @@ The parser auto-detects which protocol a session uses. Token totals are exact re
 
 ## Known Limitations
 
-### Claude Code `output_tokens` are understated
+### Claude-Family Logging Is Mixed
 
-Claude Code JSONL session logs record a **placeholder value** (typically 1-2) for `output_tokens` on assistant records. The real output token count — which can be 10-1000x larger — is only available in the streaming `result` event, which Claude Code does not persist to the session file. All other usage fields (`input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`) are accurate.
+Claude Code and Cowork both emit repeated `assistant` snapshots for one logical response in modern logs. If those rows are counted naively, turn counts and input/cache totals are badly inflated. token-char now collapses those snapshots into one logical response using `requestId` / `message.id` / `uuid` identities and takes the max observed input/cache counters for that response.
 
-This is an upstream Claude Code logging issue, not a token-char parsing bug. It affects any tool reading Claude Code session logs directly.
+Per-turn `output_tokens` is still source-dependent:
 
-**Impact:** Claude Code `total_output_tokens` and `total_tokens` will be significantly understated. Codex output token counts are unaffected.
+- **Claude Code older persisted-stream sessions**: if `stream_event.message_delta.usage.output_tokens` is present, token-char uses it for authoritative per-turn output. If `result` is present, session totals come from `result`.
+- **Claude Code newer snapshot-only sessions**: per-turn output remains conservative and is marked unreliable because no final usage is persisted.
+- **Cowork**: per-turn output remains unreliable, but session totals are corrected from `result.modelUsage` / `result.usage` when present.
+- **Codex**: API usage is authoritative for both per-turn and session totals.
 
-**Cowork (Claude Desktop)** has the same per-turn placeholder bug — per-turn `output_tokens` are typically 1-27 regardless of actual response length. However, Cowork audit logs include `result` records with correct cumulative `output_tokens` at the end of each conversation segment. token-char uses these `result` records to produce accurate session-level `total_output_tokens`. Per-turn output values remain understated but session totals are correct.
+Use `output_tokens_reliable` / `output_tokens_source` and `total_output_tokens_reliable` / `total_output_tokens_source` before computing derived output-based metrics.
 
 See [docs/claude-code-output-tokens-bug.md](docs/claude-code-output-tokens-bug.md) for the full investigation, controlled experiment results, and reproduction steps. Filed upstream: [anthropics/claude-code#25941](https://github.com/anthropics/claude-code/issues/25941), see also [#21971](https://github.com/anthropics/claude-code/issues/21971)
 

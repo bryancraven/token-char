@@ -17,6 +17,58 @@ def parse_timestamp(ts_str):
         return None
 
 
+def duration_minutes(first_ts, last_ts):
+    """Return elapsed minutes between two ISO timestamps, or None."""
+    if not first_ts or not last_ts:
+        return None
+    try:
+        dt_first = datetime.fromisoformat(first_ts)
+        dt_last = datetime.fromisoformat(last_ts)
+        delta = (dt_last - dt_first).total_seconds() / 60
+        if delta > 0:
+            return round(delta, 1)
+    except (ValueError, TypeError):
+        return None
+    return None
+
+
+def nested_get(obj, path, default=None):
+    """Return a dotted-path lookup from nested dicts/lists."""
+    cur = obj
+    for part in path.split("."):
+        if isinstance(cur, dict):
+            cur = cur.get(part, default)
+        else:
+            return default
+    return cur
+
+
+def safe_int(value):
+    """Best-effort int conversion for token counters."""
+    if value in (None, ""):
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def usage_int(usage, key):
+    """Return an integer usage counter from a usage dict."""
+    if not isinstance(usage, dict):
+        return 0
+    return safe_int(usage.get(key, 0))
+
+
+def response_identity(rec, paths, fallback=None):
+    """Return the first populated identifier from the given dotted paths."""
+    for path in paths:
+        value = nested_get(rec, path)
+        if value not in (None, ""):
+            return str(value)
+    return fallback
+
+
 def model_family(model_name):
     """Classify a model string into opus/sonnet/haiku/gpt/unknown."""
     if not model_name:
